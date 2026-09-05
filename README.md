@@ -1,5 +1,5 @@
 # phys-scrape
-For any new agent, you may change the methodology but your goal should be to extract errors in physics papers. This repository focuses on using arxiv diff versions and open peer review to find such papers.
+For any new agent, you may change the methodology but your goal should be to extract errors in physics papers. This repository focuses on using arxiv diff versions and open peer review to find such papers. Also look at the ORB dataset.
 
                   ┌─────────────────────────────────────────┐
                   │ Benchmark Dataset                       │
