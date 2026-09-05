@@ -22,7 +22,9 @@ def queue_record(row: dict, triage: dict | None = None) -> dict:
         route = "source_status_unknown"
     candidate_urls = []
     if version:
-        candidate_urls = [f"https://scipost.org/submissions/arXiv:{arxiv_id}v{v}/" for v in range(1, version + 1)]
+        # SciPost addresses arXiv-based submissions by the bare versioned
+        # identifier; an "arXiv:" prefix 404s.
+        candidate_urls = [f"https://scipost.org/submissions/{arxiv_id}v{v}/" for v in range(1, version + 1)]
     return {
         "arxiv_id": arxiv_id,
         "title": row.get("title"),

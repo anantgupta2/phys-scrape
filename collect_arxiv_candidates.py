@@ -14,6 +14,7 @@ The arXiv API is rate-limited.  The default delay is deliberately conservative.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import re
@@ -69,11 +70,17 @@ def clean(text: str | None) -> str:
 
 
 def paper_id(entry_id: str) -> str:
-    # API IDs look like http://arxiv.org/abs/2401.01234v2.
-    return entry_id.rsplit("/", 1)[-1].split("v", 1)[0]
+    """Strip the API URL prefix and any trailing version suffix.
+
+    Pre-2007 identifiers carry an archive prefix that is part of the ID
+    (hep-th/0605196v2 -> hep-th/0605196), so the path cannot simply be split
+    on "/", and the ID itself may contain a "v".
+    """
+    identifier = entry_id.split("/abs/", 1)[-1]
+    return re.sub(r"v\d+$", "", identifier)
 
 
-def api_search(term: str | None, start: int, limit: int, session: requests.Session, category: str | None = None) -> bytes:
+def search_params(term: str | None, category: str | None, start: int, limit: int) -> dict:
     # arXiv's API accepts cat:hep-th but returns zero results for a parenthesized
     # OR category expression. Category-specific requests are therefore both more
     # reliable and auditable than a union query.
@@ -82,8 +89,16 @@ def api_search(term: str | None, start: int, limit: int, session: requests.Sessi
             raise ValueError("category is required for a category-only query")
         query = f"cat:{category}"
     else:
-        query = f"all:{term}" if category is None else f"cat:{category}+AND+all:{term}"
-    params = {"search_query": query, "start": start, "max_results": limit, "sortBy": "lastUpdatedDate", "sortOrder": "descending"}
+        # A literal "+" here is percent-encoded to %2B by requests, and arXiv
+        # then parses "cat:X+AND+all:Y" as "cat:X AND all: OR all:Y" -- an OR
+        # with an empty category clause. A space encodes to "+" on the wire,
+        # which is arXiv's documented field separator.
+        query = f"all:{term}" if category is None else f"cat:{category} AND all:{term}"
+    return {"search_query": query, "start": start, "max_results": limit, "sortBy": "lastUpdatedDate", "sortOrder": "descending"}
+
+
+def api_search(term: str | None, start: int, limit: int, session: requests.Session, category: str | None = None) -> bytes:
+    params = search_params(term, category, start, limit)
     for attempt, pause in enumerate((0.0, 20.0, 60.0, 180.0)):
         if pause:
             time.sleep(pause)
@@ -93,6 +108,21 @@ def api_search(term: str | None, start: int, limit: int, session: requests.Sessi
             return response.content
     response.raise_for_status()  # keeps the response details if all retries throttled
     raise AssertionError("unreachable")
+
+
+def page_exhausted(returned: int, requested: int) -> bool:
+    return returned < requested
+
+
+def parse_page(xml: bytes) -> tuple[int, list[dict]]:
+    """Return (entries arXiv returned, entries in a target category).
+
+    The two counts differ whenever the filter drops cross-lists, so only the
+    first may be compared against the requested page size.
+    """
+    root = ET.fromstring(xml)
+    returned = len(root.findall("atom:entry", NS))
+    return returned, parse_entries(xml)
 
 
 def parse_entries(xml: bytes) -> list[dict]:
@@ -126,12 +156,13 @@ def discover(per_query: int, delay: float, revision_pool: int = 0, include_keywo
         for term in terms:
             for category in sorted(TARGET_CATEGORIES):
                 for start in range(0, per_query, 100):
-                    entries = parse_entries(api_search(term, start, min(100, per_query - start), session, category))
+                    requested = min(100, per_query - start)
+                    returned, entries = parse_page(api_search(term, start, requested, session, category))
                     for entry in entries:
                         current = found.setdefault(entry["arxiv_id"], {**entry, "matched_queries": [], "tiers": set()})
                         current["matched_queries"].append(f"{category}:{term}")
                         current["tiers"].add(tier)
-                    if len(entries) < min(100, per_query - start):
+                    if page_exhausted(returned, requested):
                         break
                     time.sleep(delay)
             time.sleep(delay)
@@ -140,17 +171,46 @@ def discover(per_query: int, delay: float, revision_pool: int = 0, include_keywo
     # versions, and the diff/evidence stage decides final admission.
     for category in sorted(TARGET_CATEGORIES):
         for start in range(0, revision_pool, 100):
-            entries = parse_entries(api_search(None, start, min(100, revision_pool - start), session, category))
+            requested = min(100, revision_pool - start)
+            returned, entries = parse_page(api_search(None, start, requested, session, category))
             for entry in entries:
                 current = found.setdefault(entry["arxiv_id"], {**entry, "matched_queries": [], "tiers": set()})
                 current["matched_queries"].append(f"{category}_revision_pool")
                 current["tiers"].add("revision_pool")
-            if len(entries) < min(100, revision_pool - start):
+            if page_exhausted(returned, requested):
                 break
             time.sleep(delay)
     for item in sorted(found.values(), key=lambda x: (x["updated"], x["arxiv_id"]), reverse=True):
         tier = "high_precision" if "high_precision" in item["tiers"] else ("high_recall" if "high_recall" in item["tiers"] else "revision_pool")
         yield Candidate(**{k: item[k] for k in Candidate.__dataclass_fields__ if k not in {"discovery_tier", "version_count"}}, discovery_tier=tier)
+
+
+SOURCE_SUFFIX = {"tar": ".tar", "gzip_tex": ".tex.gz"}
+
+
+def source_kind(path: Path) -> str | None:
+    """Classify an e-print response, or None if it is neither source form.
+
+    arXiv returns a tar(.gz) for multi-file submissions and a bare gzipped
+    .tex for single-file ones; a throttle interstitial is HTML and is neither.
+    """
+    if tarfile.is_tarfile(path):
+        return "tar"
+    try:
+        with gzip.open(path, "rb") as handle:
+            handle.read(1)
+    except (OSError, EOFError):
+        return None
+    return "gzip_tex"
+
+
+def existing_source(paper_dir: Path, version: int) -> tuple[Path, str] | None:
+    for suffix in SOURCE_SUFFIX.values():
+        candidate = paper_dir / f"v{version}{suffix}"
+        kind = source_kind(candidate) if candidate.exists() else None
+        if kind:
+            return candidate, kind
+    return None
 
 
 VERSION_RE = re.compile(r"\[v(\d+)(?:\s|\])")
@@ -195,28 +255,33 @@ def fetch_sources(input_path: Path, source_dir: Path, delay: float) -> list[dict
         row["source_artifacts"] = []
         try:
             for version in (1, 2):
-                output = paper_dir / f"v{version}.tar"
                 # A 200 response can be an HTML throttle/interstitial. Re-fetch
                 # invalid existing files too, but write atomically so a valid
-                # archive is never replaced by a partial response.
-                for attempt, pause in enumerate((0.0, 15.0, 60.0)):
-                    if output.exists() and tarfile.is_tarfile(output):
+                # source is never replaced by a partial response.
+                accepted = existing_source(paper_dir, version)
+                for pause in (0.0, 15.0, 60.0):
+                    if accepted:
                         break
                     if pause:
                         time.sleep(pause)
                     response = session.get(SOURCE.format(paper_id=arxiv_id, version=version), timeout=120, headers={"User-Agent": "theory-review-benchmark/0.1"})
                     response.raise_for_status()
-                    temporary = output.with_suffix(".tar.part")
+                    temporary = paper_dir / f"v{version}.part"
                     temporary.write_bytes(response.content)
-                    if tarfile.is_tarfile(temporary):
+                    kind = source_kind(temporary)
+                    if kind:
+                        output = paper_dir / f"v{version}{SOURCE_SUFFIX[kind]}"
                         temporary.replace(output)
+                        accepted = (output, kind)
                         break
-                if not output.exists() or not tarfile.is_tarfile(output):
+                    temporary.unlink()
+                if not accepted:
                     row["source_status"] = "invalid_archive"
-                    row["source_error"] = f"v{version} download is not a readable tar archive"
+                    row["source_error"] = f"v{version} download is neither a tar archive nor a gzipped TeX source"
                     break
+                output, kind = accepted
                 payload = output.read_bytes()
-                row["source_artifacts"].append({"version": version, "path": str(output), "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
+                row["source_artifacts"].append({"version": version, "path": str(output), "kind": kind, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
                 time.sleep(delay)
             else:
                 row["source_status"] = "downloaded_v1_v2"
