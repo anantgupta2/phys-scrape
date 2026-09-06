@@ -131,6 +131,23 @@ judgment, no model involvement.
 5. At least one vetted report containing a **single sentence** that both
    objects and cites a numbered location, and is not about presentation.
 
+Sentence splitting must not break on abbreviations. "eq." ends in a period,
+and a naive splitter cut objections in half so one fragment held the complaint
+and the other the equation number, qualifying neither. It also truncated
+evidence: report 1 on arXiv:2002.02120v2 was stored as "(21), presented as the
+main result, does not agree with the standard Weinberg soft factor",
+discarding the preceding "the paper contains a critical error". Fixing this
+recovered 73 candidates.
+
+Report fields are joined with a newline, not a space. 2,033 field boundaries
+lack terminal punctuation, so a space fused the tail of one field to the head
+of the next and fabricated quotes -- one read a bibliography entry as
+"equation 247".
+
+A bare parenthesised number counts only when it is not glued to a preceding
+letter, brace or backslash. Without that guard SO(6), U(1) and sqrt(2)
+produced 33 fictitious equation references.
+
 Matching is sentence-level, not document-level. Document-level co-occurrence
 was tried first and failed in both directions against real reports:
 
@@ -184,13 +201,30 @@ For each qualifying (submission, report, cited-location) triple:
 
 | Confidence | Meaning | Served? |
 | --- | --- | :-: |
-| `corroborated_symbol` | A symbol the referee quoted appears in the excerpt | yes |
-| `corroborated_author_marked` | The authors tagged the change (`\changed`) | yes |
-| `corroborated_unique` | Only one equation changed, within tolerance | yes |
+| `corroborated_symbol` | A compound symbol the referee quoted appears in the hunk | yes |
+| `corroborated_author_marked` | Best-ranked hunk also carries `\changed` | yes |
+| `corroborated_unique` | The only changed equation, ordinal matching exactly | yes |
 | `corroborated_exact` | Ordinal matches the cited number exactly | yes |
 | `corroborated_near` | Closest changed equation is 1-3 ordinals away | no |
-| `contradicted_symbols` | A quoted symbol is absent from the excerpt | no |
+| `contradicted_symbols` | A quoted compound symbol is absent from the hunk | no |
 | `unresolved` | No changed equation is comparable to the citation | no |
+| `unsupported_location_kind` | Cites a theorem, lemma or section, which an equation diff cannot anchor | no |
+| `no_source_change` | The two revisions produce no differing hunk | no |
+
+Candidates are ranked by distance from the referee's citation, with author
+marking as a tiebreak. An earlier version took the first `\changed` hunk
+without consulting the citation, anchoring every card in a paper to the same
+equation -- 20 of the 74 changed hunks on arXiv:2207.00854 carry the macro.
+The citation is the referee's own statement of location; a tag says only that
+the authors touched something.
+
+Symbol agreement is tested against the hunk, not the excerpt: the excerpt is
+padded with context and whole neighbouring environments, so a symbol from an
+adjacent equation would confirm any anchor. Only sub- and superscripted
+compounds count, since a lone `\alpha` appears in almost any excerpt and is
+evidence neither way. Font macros are folded before comparison, because
+referees retype expressions and `\rm` versus `\mathrm` is not a
+disagreement.
 
 Numbers are matched two ways, because papers print both: a dotted citation
 such as "(3.26)" against a section-qualified label, only within the cited
@@ -245,6 +279,7 @@ and candidate hunks and no model-facing excerpt:
     data/error_cards.jsonl              anchored; the only model-facing file
     data/error_cards_gold.jsonl         gold evidence for the above
     data/error_cards_unresolved.jsonl   human localization queue
+    data/error_cards_skipped.jsonl      sources missing or unusable
 
 Nothing is discarded. A referee can be right about a paper whose authors
 rebutted them.
@@ -253,18 +288,25 @@ rebutted them.
 model:
 
     {
-      "card_id": "2208.00606v1-eq20",
-      "arxiv_id": "2208.00606",
-      "version": 1,
+      "card_id": "9f2c1a77b0e4d513",
       "excerpt_lines": [104, 131],
       "excerpt": "<v-before LaTeX>",
-      "task": "Identify any incorrect claim in this excerpt and explain why."
+      "task": "Find any mathematical or physical mistake in this excerpt, ..."
     }
+
+The id is an opaque digest of (submission, kind, number). A readable id such
+as `2208.00606v1-equation20` would name the cited equation while the task asks
+the model to say where the error is. `arxiv_id` and `version` are gold-side
+for the same reason: together they reconstruct both the later revision and the
+SciPost submission URL, so an agentic evaluee could fetch the answer.
 
 `data/error_cards_gold.jsonl` — never served to a model:
 
     {
-      "card_id": "2208.00606v1-eq20",
+      "card_id": "9f2c1a77b0e4d513",
+      "arxiv_id": "2208.00606",
+      "version": 1,
+      "scipost_identifier": "2208.00606v1",
       "scipost_submission_url": "https://scipost.org/submissions/2208.00606v1/",
       "report_url": "https://scipost.org/submissions/2208.00606v1/#report_1",
       "report_doi": "10.21468/SciPost.Report.13826",
@@ -333,7 +375,7 @@ the report text it quotes, so a later change on SciPost is detectable.
 ## Measured yield
 
 Full enumeration on 2026-09-05 returned 8,846 submissions and produced
-**462 candidates carrying 793 referee objection quotes**.
+**520 candidates carrying 929 referee objection quotes**.
 
 **59% of candidates are not v1 -> v2 rounds.** Observed pairs include v2->v3
 (181), v3->v4 (44), v1->v3 (17), v2->v4 (14) and v4->v5 (8). Assuming v1/v2
