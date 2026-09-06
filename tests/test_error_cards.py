@@ -304,3 +304,33 @@ def test_main_tex_filename_stays_on_the_gold_side():
     assert "main_tex" not in model
     assert gold["main_tex"] == "SciPostPhys_arxiv.tex"
     assert "scipost" not in json.dumps(model).lower()
+
+
+# --- routing -----------------------------------------------------------------
+# An unresolved card's excerpt is a guess, so it may not contain the error at
+# all. Serving it as a benchmark item would ask a model an unanswerable
+# question. It goes to the human queue instead -- kept, not dropped.
+
+def test_anchored_cards_are_routed_to_the_model_facing_set():
+    built = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
+    model, gold, unresolved = cards.route(built)
+    assert len(model) == 1 and len(gold) == 1 and unresolved == []
+
+
+def test_unresolved_cards_are_routed_to_the_human_queue_with_their_hunks():
+    stubborn = json.loads(json.dumps(CANDIDATE))
+    stubborn["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "97"}]
+    built = cards.build(stubborn, V_BEFORE, V_AFTER)
+    model, gold, unresolved = cards.route(built)
+    assert model == [] and gold == []
+    assert len(unresolved) == 1
+    assert unresolved[0]["location_confidence"] == "unresolved"
+    assert unresolved[0]["candidate_hunks"]
+    assert unresolved[0]["referee_quote"]
+
+
+def test_the_human_queue_carries_no_model_facing_excerpt():
+    stubborn = json.loads(json.dumps(CANDIDATE))
+    stubborn["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "97"}]
+    _, _, unresolved = cards.route(cards.build(stubborn, V_BEFORE, V_AFTER))
+    assert "excerpt" not in unresolved[0]

@@ -234,6 +234,25 @@ def build(candidate: dict, old: list[str], new: list[str],
     return built
 
 
+def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split cards into the model-facing set and the human localization queue.
+
+    An unresolved card's excerpt is a guess at which changed hunk the referee
+    meant, so it may not contain the error at all.  Serving it would ask an
+    unanswerable question, so it goes to a reviewer with its candidate hunks
+    rather than into the benchmark.  It is kept, not discarded: a referee can
+    be right about a paper whose authors rebutted them.
+    """
+    model_cards, gold_cards, unresolved = [], [], []
+    for model, gold in built:
+        if gold["location_confidence"] == "unresolved":
+            unresolved.append(gold)
+        else:
+            model_cards.append(model)
+            gold_cards.append(gold)
+    return model_cards, gold_cards, unresolved
+
+
 def write_jsonl(path: Path, records: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -252,7 +271,7 @@ def main() -> None:
 
     rows = [json.loads(line) for line in
             args.candidates.read_text(encoding="utf-8").splitlines() if line]
-    model_cards, gold_cards, skipped = [], [], []
+    model_cards, gold_cards, unresolved, skipped = [], [], [], []
     for row in rows:
         folder = args.source_dir / row["arxiv_id"].replace("/", "_")
         try:
@@ -261,20 +280,24 @@ def main() -> None:
         except Exception as exc:  # sources absent or unreadable; keep for retry
             skipped.append({"arxiv_id": row["arxiv_id"], "reason": str(exc)})
             continue
-        for model, gold in build(row, old, new, main_tex=name):
-            model_cards.append(model)
-            gold_cards.append(gold)
+        model_part, gold_part, unresolved_part = route(build(row, old, new, main_tex=name))
+        model_cards += model_part
+        gold_cards += gold_part
+        unresolved += unresolved_part
 
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     write_jsonl(args.output_dir / "error_cards.jsonl", model_cards)
     write_jsonl(args.output_dir / "error_cards_gold.jsonl",
                 [g | {"retrieved_at": stamp} for g in gold_cards])
+    write_jsonl(args.output_dir / "error_cards_unresolved.jsonl",
+                [g | {"retrieved_at": stamp} for g in unresolved])
     if skipped:
         write_jsonl(args.output_dir / "error_cards_skipped.jsonl", skipped)
     confidence: dict[str, int] = {}
     for gold in gold_cards:
         confidence[gold["location_confidence"]] = confidence.get(gold["location_confidence"], 0) + 1
-    print(f"{len(rows)} candidates -> {len(model_cards)} cards ({len(skipped)} skipped)")
+    print(f"{len(rows)} candidates -> {len(model_cards)} benchmark cards, "
+          f"{len(unresolved)} for human localization ({len(skipped)} sources missing)")
     for key in sorted(confidence):
         print(f"  {key:32} {confidence[key]}")
 
