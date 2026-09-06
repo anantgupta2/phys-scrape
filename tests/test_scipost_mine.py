@@ -291,3 +291,33 @@ def test_the_cache_is_deduplicated_by_identifier():
     ]}
     assert [r["identifier"] for r in mine.deduplicate(page["results"])] == [
         "2401.00001v1", "2401.00002v1"]
+
+
+# --- corrective requests -----------------------------------------------------
+# A referee asking for a specific change to a specific equation is a candidate
+# even without a word like "wrong". This is the recall tier: it adds 317
+# (round, location) pairs on the real corpus, taking the total past 1,600.
+# It is weaker evidence than a stated error, so it is labelled as such.
+
+def test_a_corrective_request_qualifies_as_a_candidate():
+    found = mine.objections("In eq. (14) the prefactor should be replaced by 2/N.")
+    assert len(found) == 1
+    assert found[0]["tier"] == "corrective_request"
+
+
+def test_a_stated_error_outranks_a_corrective_request():
+    found = mine.objections("(14) is incorrect and should be replaced.")
+    assert found[0]["tier"] == "stated_error"
+
+
+def test_a_corrective_request_without_an_equation_does_not_qualify():
+    # Section-level change requests are too weak to carry the tier.
+    assert mine.objections("Section 4 should be expanded with more detail.") == []
+
+
+def test_a_corrective_request_about_prose_is_still_rejected():
+    assert mine.objections("The caption of Eq. (3) should be rewritten for grammar.") == []
+
+
+def test_a_plain_statement_citing_an_equation_is_not_a_candidate():
+    assert mine.objections("The derivation of eq. (7) follows Ref. [3].") == []

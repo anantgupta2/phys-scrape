@@ -46,7 +46,20 @@ ORDINAL_TOLERANCE = 3
 NUMBERED_BEGIN = re.compile(r"\\begin\{(equation|align|gather|multline|eqnarray)\}")
 ANY_END = re.compile(r"\\end\{(equation|align|gather|multline|eqnarray)\}")
 SECTION = re.compile(r"\\section\{")
-AUTHOR_MARKED = re.compile(r"\\changed\b|\\revised\b|\\added\b")
+# Authors mark revisions for the referee in several conventions. Only 3 of 518
+# real papers use \changed; 64% use colour. Requiring the markup to be
+# introduced by the revision keeps papers that colour their equations
+# throughout from reading as marked.
+AUTHOR_MARKED = re.compile(
+    r"\\(?:changed|revised|added|removed|replaced)\b"
+    r"|\\textcolor\s*\{|\\color\s*\{"
+    r"|\\(?:hl|uline|uwave|sout)\s*\{"
+    r"|\\DIF(?:add|del)"
+)
+
+
+def revision_markup(text: str) -> bool:
+    return bool(AUTHOR_MARKED.search(text))
 
 # Confidence levels whose excerpt is trustworthy enough to serve as a question.
 # "corroborated_near" and "unresolved" are reviewed by a human instead.
@@ -217,7 +230,8 @@ def choose_anchor(old: list[str], new: list[str], cited_number: str) -> tuple[Hu
         distance = citation_distance(span, str(cited_number)) if span else None
         if distance is None or distance > ORDINAL_TOLERANCE:
             continue
-        marked = bool(AUTHOR_MARKED.search("\n".join(new[slice(*hunk.after_lines)])))
+        marked = (revision_markup("\n".join(new[slice(*hunk.after_lines)]))
+                  and not revision_markup("\n".join(old[slice(*hunk.before_lines)])))
         within.append((distance, not marked, index, hunk))
     if not within:
         return None, "unresolved"
@@ -290,6 +304,7 @@ def build(candidate: dict, old: list[str], new: list[str],
             "referee_quote": primary["quote"],
             "supporting_quotes": [o["quote"] for o in group[1:]],
             "referee_validity_rating": primary.get("referee_validity_rating"),
+            "tier": primary.get("tier", "stated_error"),
             "cited_location": location,
             "v_before": candidate["v_before"],
             "v_after": candidate["v_after"],
@@ -305,6 +320,7 @@ def build(candidate: dict, old: list[str], new: list[str],
             # rather than dropped: 153 of 793 objections cite only these.
             built.append((None, gold | {
                 "location_confidence": "unsupported_location_kind",
+                "anchor_marked": False,
                 "anchor_hunk": None,
                 "candidate_hunks": [_hunk_record(h) for h in fallback[:12]],
             }))
@@ -315,6 +331,7 @@ def build(candidate: dict, old: list[str], new: list[str],
         if source is None:
             built.append((None, gold | {
                 "location_confidence": "no_source_change",
+                "anchor_marked": False,
                 "anchor_hunk": None,
                 "candidate_hunks": [],
             }))
@@ -343,6 +360,8 @@ def build(candidate: dict, old: list[str], new: list[str],
             } if served else None,
             gold | {
                 "location_confidence": confidence,
+                "anchor_marked": bool(anchor) and revision_markup(
+                    "\n".join(new[slice(*anchor.after_lines)])),
                 "anchor_hunk": _hunk_record(anchor) if anchor else None,
                 # A reviewer needs the alternatives, which is the whole point
                 # when the chosen anchor was rejected.

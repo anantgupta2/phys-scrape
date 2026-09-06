@@ -60,10 +60,19 @@ OBJECTION = re.compile(
     r"|not clear (?:to me )?(?:that|how|why)"
     r"|(?:do not|don'?t|cannot|can not|could not|couldn'?t) (?:see|understand|agree|follow)"
     r"|not sure (?:I|that|how|why)"
-    r"|should (?:be|read)"
     r"|seems? (?:to be )?(?:wrong|incorrect|inconsistent)"
     r"|fails? to (?:hold|follow)"
     r"|missing a|factor of",
+    re.I,
+)
+
+# A referee asking for a specific change to a specific equation is evidence of
+# a defect even without a word like "wrong". This is the recall tier: weaker
+# than a stated error, and labelled so that ranking can separate the two.
+CORRECTIVE = re.compile(
+    r"\b(?:should (?:be|read|have|not)|must be|needs? to be|ought to be"
+    r"|please (?:correct|replace|fix|change|revise)|replaced? (?:by|with)"
+    r"|corrected to|is missing|are missing|add a|insert)\b",
     re.I,
 )
 
@@ -98,6 +107,8 @@ ARXIV_IDENTIFIER = re.compile(
     r"^(?P<id>\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Za-z-]{2,})?/\d{7})v(?P<version>\d+)$"
 )
 REPORT_FIELDS = ("report", "weaknesses", "requested_changes")
+# Kinds a source diff can plausibly be pointed at. A section is not one.
+LOCALIZABLE = frozenset({"equation", "theorem", "lemma", "proposition"})
 
 
 def sentences(text: str) -> list[str]:
@@ -152,11 +163,21 @@ def objections(text: str) -> list[dict]:
     """
     results = []
     for sentence in sentences(text):
-        if PROSE.search(sentence) or not OBJECTION.search(sentence):
+        if PROSE.search(sentence):
             continue
         locations = cited_locations(sentence)
-        if locations:
-            results.append({"quote": sentence, "cited_locations": locations})
+        if not locations:
+            continue
+        if OBJECTION.search(sentence):
+            tier = "stated_error"
+        elif CORRECTIVE.search(sentence) and any(l["kind"] in LOCALIZABLE for l in locations):
+            # A change request needs a localizable target to be worth a card;
+            # "section 4 should be expanded" points at nothing a diff can find.
+            tier = "corrective_request"
+            locations = [l for l in locations if l["kind"] in LOCALIZABLE]
+        else:
+            continue
+        results.append({"quote": sentence, "cited_locations": locations, "tier": tier})
     return results
 
 

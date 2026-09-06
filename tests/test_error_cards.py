@@ -69,6 +69,7 @@ CANDIDATE = {
         "report_url": "https://scipost.org/submissions/1234.56789v2/#report_1",
         "report_doi": "10.21468/SciPost.Report.9999",
         "referee_validity_rating": "ok",
+        "tier": "stated_error",
     }],
 }
 
@@ -679,3 +680,54 @@ def test_section_labels_span_the_rows_of_an_align():
     span = cards.environment_spans(ALIGNED)[0]
     assert cards.citation_distance(span, "1.2") == 0
     assert cards.citation_distance(span, "2.2") is None      # wrong section
+
+
+# --- revision markup, as authors actually write it ---------------------------
+# Only 3 of 518 papers use \changed. 64% use colour instead, and markup that is
+# introduced in a changed hunk narrows 367 equation hunks to 44 -- an 8x
+# narrowing on the 5% of papers where it lands on an equation.
+
+@pytest.mark.parametrize("marked", [
+    r"p = m v \changed{fixed}",
+    r"p = m \textcolor{red}{v_{\rm fixed}}",
+    r"{\color{blue} p = m v}",
+    r"p = m \hl{v}",
+    r"\DIFadd{p = m v}",
+])
+def test_revision_markup_is_recognised(marked):
+    assert cards.revision_markup(marked)
+
+
+def test_ordinary_text_is_not_revision_markup():
+    assert not cards.revision_markup(r"p = m v_{\rm wrong}")
+
+
+def test_markup_already_present_before_the_revision_does_not_count():
+    # A paper that colours its equations throughout is not marking changes.
+    before = [r"\section{S}", r"\begin{equation}",
+              r"{\color{blue} a = 1}", r"\end{equation}"]
+    after = [r"\section{S}", r"\begin{equation}",
+             r"{\color{blue} a = 2}", r"\end{equation}"]
+    anchor, confidence = cards.choose_anchor(before, after, cited_number="1")
+    assert confidence != "corroborated_author_marked"
+
+
+def test_markup_introduced_by_the_revision_counts():
+    before = [r"\section{S}", r"\begin{equation}", r"a = 1", r"\end{equation}",
+              r"\begin{equation}", r"b = 2", r"\end{equation}"]
+    after = [r"\section{S}", r"\begin{equation}", r"a = 1", r"\end{equation}",
+             r"\begin{equation}", r"\textcolor{red}{b = 3}", r"\end{equation}"]
+    anchor, confidence = cards.choose_anchor(before, after, cited_number="2")
+    assert confidence == "corroborated_author_marked"
+
+
+# --- ranking inputs ----------------------------------------------------------
+
+def test_gold_records_carry_the_objection_tier():
+    (_, gold), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
+    assert gold["tier"] == "stated_error"
+
+
+def test_gold_records_record_whether_the_anchor_was_author_marked():
+    (_, gold), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
+    assert gold["anchor_marked"] is False
