@@ -1,7 +1,7 @@
 # SciPost error-card miner — design
 
 Date: 2026-09-05
-Status: approved for planning
+Status: implemented (enumerate, select, version pairs, card generator)
 
 ## Purpose
 
@@ -128,18 +128,38 @@ judgment, no model involvement.
    superseded by a later one and therefore that the authors responded. The
    `thread_hash` group then supplies the identifier of the following round,
    which names the arXiv version containing the fix.
-5. At least one vetted report whose combined `report`, `weaknesses`, and
-   `requested_changes` text matches **both**
-   a. error language: `sign error`, `incorrect`, `is wrong`, `error in`,
-      `mistake`, `invalid`, `erroneous`, `contradicts`, `inconsistent`,
-      `does not follow`, `cannot be`, `fails to hold`; **and**
-   b. a specific cited location: an equation, theorem, lemma, proposition,
-      section, or page reference carrying a number.
+5. At least one vetted report containing a **single sentence** that both
+   objects and cites a numbered location, and is not about presentation.
 
-Condition 5b is the precision filter. A keyword scan without it produced a
-false positive during design: the phrase "does not follow" occurring inside a
-compliment, citing nothing. A referee describing a real technical error names
-where it is.
+Matching is sentence-level, not document-level. Document-level co-occurrence
+was tried first and failed in both directions against real reports:
+
+- It admitted a compliment. "does not follow" appeared in praise on one
+  submission while the cited location sat in an unrelated sentence.
+- It missed a real objection. Report 1 on arXiv:2207.00854v2 reads "I do not
+  understand the first equality in (8)" and then derives a counterexample.
+  That report contains no word from any error-keyword list, so the paper
+  qualified only through a second referee, and the better objection would
+  have been lost.
+
+Requiring both signals in one sentence fixes both cases and yields the exact
+quote to record as evidence. Consequently the objection vocabulary includes
+hedged forms -- "do not understand", "not clear how", "not sure I agree",
+"should be", "should read", "fails to hold" -- alongside blunt ones, and a
+prose filter rejects sentences about punctuation, grammar, spelling, captions
+and numbering.
+
+A bare parenthesised number is treated as an equation reference, since that is
+how referees most often cite one, but only from 1 upward: "the delta(0) in
+Fourier" is notation, not a citation.
+
+**Precision is roughly one real error in two**, and that is the ceiling for
+lexical rules. Tightening them further -- demanding inline math, dropping
+section references -- was measured and rejected: it discarded real objections
+while still admitting noise such as "(28) should be Eq.~(28) in the LaTeX
+source file". Separating "equation 3 is incorrect" from "all equations should
+be numbered" is a semantic judgment. That is what the ranking step is for, and
+why ranking may reorder the queue but never shorten it.
 
 `validity` is recorded on each card but is not a selection criterion. Measured
 correlation with error language is weak and the field is unset on 36% of
@@ -171,9 +191,19 @@ For each qualifying (submission, report, cited-location) triple:
      `location_confidence = "unresolved"`, and every retained hunk is attached
      as a candidate.
 
-The approximate ordinal count in step 5 is a tie-breaker with a tolerance
-window, not an emulation of LaTeX numbering. It may only raise confidence or
-select among existing candidates; it never excludes a card.
+Before any ordinal reasoning, a hunk whose after-text carries an author
+revision macro (`\changed`, `\revised`, `\added`) wins outright. Authors who
+tag their own revisions have already localized the fix; 20 of the 74 changed
+hunks on arXiv:2207.00854 were tagged this way.
+
+The approximate ordinal count is a tie-breaker with a tolerance window, not an
+emulation of LaTeX numbering. It may only raise confidence or select among
+existing candidates; it never excludes a card. Tolerance is 3: the fracton
+case sat exactly two ordinals from the referee's cited number, too close to a
+tolerance of 2 to depend on.
+
+Measured on arXiv:2207.00854 v2->v3, this reduces 74 changed hunks to 6
+containing numbered equations, one of which holds the referee's target.
 
 An `unresolved` card is not a rejected card. Authors sometimes rebut a
 referee rather than revise, and the referee may still be correct. These are
@@ -274,27 +304,35 @@ the report text it quotes, so a later change on SciPost is detectable.
 
 ## Measured yield
 
-Applying the rules above to the 1,000-submission sample:
+Full enumeration on 2026-09-05 returned 8,846 submissions and produced
+**462 candidates carrying 793 referee objection quotes**.
 
-| After filter | Remaining |
-| --- | ---: |
-| (sampled) | 1000 |
-| theory specialty | 933 |
-| arXiv identifier | 576 |
-| vetted report | 440 |
-| has a later round | 264 |
-| error language | 61 |
-| cites a location | 47 |
-
-47 of 1,000 qualify, projecting to roughly **420 candidate submissions**
-corpus-wide. A submission yields one card per distinct cited location, so the
-card count is somewhat higher.
+**59% of candidates are not v1 -> v2 rounds.** Observed pairs include v2->v3
+(181), v3->v4 (44), v1->v3 (17), v2->v4 (14) and v4->v5 (8). Assuming v1/v2
+would have fetched the wrong revisions for 274 of the 462 papers, including
+every verified example below.
 
 The two largest drops are informative. Requiring an arXiv identifier costs 36%
 because many SciPost submissions are hosted natively rather than on arXiv;
 those have referee reports but no v1/v2 source pair to diff. Requiring error
 language costs 77% of what remains, which is the expected shape: most referee
 reports request clarification rather than report a mistake.
+
+## Verified examples
+
+Five candidates were confirmed by hand against their arXiv source pairs.
+
+| Paper | Referee's objection | What changed |
+| --- | --- | --- |
+| 2207.00854 v2->v3 | "I do not understand the first equality in (8)"; shows it fails on curved space | v3 adds the missing hypothesis that the vector field is covariantly constant |
+| 2002.02120 v2->v3 | "(21) is incorrect... presented as the main result, does not agree with the standard Weinberg soft factor" | v3 restructures the soft factor to sum over external legs |
+| 2412.01149 v2->v3 | "in the third equation in (3.26) it should read k^jk^kp^0" | index contraction corrected from k^i k^j to k^j k^k |
+| 2411.06954 v2->v3 | "a small mistake right before Eq.(22)" about CNOT counting | gate scaling corrected from D^5 to D^4(D-2) |
+| 2411.08030 v1->v2 | "(4.16) should read alpha_{l-1} nu_l = F_{l-1} nu_{l-1}" | corrected, but inside a 63-hunk restructuring: localizes poorly |
+
+2002.02120 is still unresolved after three rounds and two "ask for major
+revision" recommendations, so it is a live dispute rather than a settled
+correction. The distinction belongs to the expert, not the miner.
 
 ## Known risks
 
