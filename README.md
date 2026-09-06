@@ -9,6 +9,71 @@ We have only tried directly scraping since that was the hardest one, please look
 | PeerRead (AllenAI) | CS/ML (ICLR, NeurIPS, ACL) + arXiv drafts | ~14.7k papers, ~10.7k reviews | Standard NLP baseline corpus; available directly on Hugging Face (`allenai/peer_read`). |
 | AIBS Open Peer Review Repository | Scientific & Grant Review Panels | 16 compiled datasets | Useful for analyzing inter-reviewer scoring calibration and criterion weighting. |
 
+## Pipelines in this repository
+
+Two paths to candidates. The second is the one to build on.
+
+### 1. arXiv revision diffs (original)
+
+Finds papers with more than one arXiv version and diffs the LaTeX source.
+Tells you *that* something changed, not *what was wrong*, so every candidate
+needs a physicist. Fifteen hand-reviewed papers produced one usable case.
+
+```bash
+python collect_arxiv_candidates.py discover --output data/candidates.jsonl --per-query 500
+python collect_arxiv_candidates.py fetch-sources --input data/candidates.jsonl \
+    --output data/candidates_sources.jsonl --source-dir data/sources
+python audit_latex_pairs.py --input data/candidates_sources.jsonl \
+    --source-dir data/sources --output data/triage.jsonl
+```
+
+### 2. SciPost referee reports (current)
+
+Sources ground truth from public peer review: a referee states what is wrong
+and where, and the following revision shows the fix. 8,846 submissions yield
+**462 candidates carrying 793 referee objection quotes**, each with a report
+DOI and a cited location.
+
+```bash
+python scipost_mine.py enumerate --cache-dir data/scipost_api_cache   # ~6 min, run once
+python scipost_mine.py select --cache-dir data/scipost_api_cache \
+    --output data/scipost_candidates.jsonl
+python -c "import json,sys;[sys.stdout.write(json.dumps({'arxiv_id':r['arxiv_id'],\
+    'source_versions':[r['v_before'],r['v_after']]})+chr(10)) \
+    for r in map(json.loads,open('data/scipost_candidates.jsonl'))]" > /tmp/fetch.jsonl
+python collect_arxiv_candidates.py fetch-sources --input /tmp/fetch.jsonl \
+    --output data/scipost_sources_status.jsonl --source-dir data/scipost_sources
+python build_error_cards.py --candidates data/scipost_candidates.jsonl \
+    --source-dir data/scipost_sources --output-dir data
+```
+
+Design and measured results: `docs/superpowers/specs/2026-09-05-scipost-error-card-miner-design.md`.
+
+### Two rules that matter
+
+**Selection is deterministic.** No model decides which papers enter the
+dataset. A model may rank the queue so a reviewer sees the strongest
+candidates first, but it never removes one, so the selected population is
+reproducible by running the rules. If Claude chose the errors, testing Claude
+on them would prove nothing.
+
+**Gold evidence is a separate file.** `error_cards.jsonl` is the only file
+that may be shown to an evaluated model. `error_cards_gold.jsonl` holds the
+referee quote, DOI, later version and diff. A test asserts nothing leaks
+across.
+
+Severity is never assigned automatically: every card ships
+`human_severity_label: unreviewed`. A referee saying "wrong" routes a paper to
+an expert; it does not certify that the flaw is fatal.
+
+### Setup
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pytest tests/ -q
+```
+
+
                   ┌─────────────────────────────────────────┐
                   │ Benchmark Dataset                       │
                   │ - Errata & Retractions (arXiv / SciPost)│
