@@ -7,6 +7,7 @@ model evaluated on these cards must never see the referee's finding.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -126,15 +127,15 @@ def test_no_equation_change_at_all_is_unresolved():
     assert anchor is None
 
 
-def test_author_marked_changes_are_preferred_over_ordinal_proximity():
-    # Some authors wrap revisions in \changed{...}; when they do, that is a
-    # stronger anchor than counting environments.
+def test_an_exact_unmarked_match_beats_a_distant_marked_one():
+    # The citation is the referee's own statement of location; an author tag
+    # only says the authors touched something.
     after = list(V_AFTER)
     after[3] = r"E = m c^2 + \delta"
     after[11] = r"p = m v_{\rm fixed} \changed{corrected here}"
     anchor, confidence = cards.choose_anchor(V_BEFORE, after, cited_number="1")
-    assert confidence == "corroborated_author_marked"
-    assert anchor.before_lines == (11, 12)
+    assert anchor.before_lines == (3, 4)
+    assert confidence == "corroborated_exact"
 
 
 # --- excerpts ----------------------------------------------------------------
@@ -160,7 +161,8 @@ def test_one_card_is_built_per_cited_equation():
     built = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
     assert len(built) == 1
     model, gold = built[0]
-    assert model["card_id"] == gold["card_id"] == "1234.56789v2-equation3"
+    assert model["card_id"] == gold["card_id"]
+    assert re.fullmatch(r"[0-9a-f]{16}", model["card_id"])
 
 
 def test_gold_card_carries_the_referee_evidence():
@@ -178,7 +180,7 @@ def test_unresolved_cards_are_still_emitted_with_candidate_hunks():
     (model, gold), = cards.build(stubborn, V_BEFORE, V_AFTER)
     assert gold["location_confidence"] == "unresolved"
     assert gold["candidate_hunks"]
-    assert model["excerpt"]
+    assert model is None          # nothing model-facing for an unanchored card
 
 
 # --- the leakage firewall ----------------------------------------------------
@@ -198,8 +200,7 @@ def test_model_card_never_contains_referee_or_after_version_content():
 def test_model_card_holds_only_the_before_version_excerpt():
     (model, _), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
     assert "v_{\\rm wrong}" in model["excerpt"]
-    assert set(model) == {"card_id", "arxiv_id", "version",
-                          "excerpt_lines", "excerpt", "task"}
+    assert set(model) == {"card_id", "excerpt_lines", "excerpt", "task"}
 
 
 # --- section-qualified equation numbers --------------------------------------
@@ -402,3 +403,197 @@ def test_a_contradicted_anchor_is_not_served():
     model, gold, unresolved = cards.route(cards.build(candidate, V_BEFORE, V_AFTER))
     assert model == [] and gold == []
     assert unresolved[0]["location_confidence"] == "contradicted_symbols"
+
+
+# --- the card id must not answer the question --------------------------------
+# A readable id such as "2207.00854v2-equation8" names the equation, while the
+# task asks the model to state where the error occurs.
+
+def test_model_facing_card_id_does_not_name_the_cited_equation():
+    (model, gold), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
+    assert "equation" not in model["card_id"]
+    assert "1234.56789" not in model["card_id"]
+    assert re.fullmatch(r"[0-9a-f]{16}", model["card_id"])
+    assert gold["card_id"] == model["card_id"]
+    assert gold["cited_location"] == {"kind": "equation", "number": "3"}
+
+
+def test_card_ids_are_stable_across_runs():
+    first = cards.build(CANDIDATE, V_BEFORE, V_AFTER)[0][0]["card_id"]
+    second = cards.build(CANDIDATE, V_BEFORE, V_AFTER)[0][0]["card_id"]
+    assert first == second
+
+
+def test_distinct_locations_get_distinct_ids():
+    two = json.loads(json.dumps(CANDIDATE))
+    two["objections"][0]["cited_locations"] = [
+        {"kind": "equation", "number": "1"}, {"kind": "equation", "number": "3"}]
+    ids = {gold["card_id"] for _, gold in cards.build(two, V_BEFORE, V_AFTER)}
+    assert len(ids) == 2
+
+
+def test_model_card_carries_no_retrievable_paper_identity():
+    # arxiv_id + version reconstruct both the later revision and the SciPost
+    # submission URL, so an agentic evaluee could fetch the answer.
+    (model, gold), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
+    assert set(model) == {"card_id", "excerpt_lines", "excerpt", "task"}
+    assert gold["arxiv_id"] == "1234.56789"
+    assert gold["version"] == 2
+
+
+# --- an author-marked hunk must still match the citation ---------------------
+# 20 of the 74 changed hunks on arXiv:2207.00854 carry \changed, so taking the
+# first one anchors every card in the paper to the same arbitrary equation.
+
+AUTHOR_MARKED_BEFORE = tex(
+    r"\section{S}",
+    r"\begin{equation}", r"a = 1", r"\end{equation}",      # eq 1
+    r"\begin{equation}", r"b = 2", r"\end{equation}",      # eq 2
+    r"\begin{equation}", r"c = 3", r"\end{equation}",      # eq 3
+)
+AUTHOR_MARKED_AFTER = tex(
+    r"\section{S}",
+    r"\begin{equation}", r"a = 1 \changed{x}", r"\end{equation}",
+    r"\begin{equation}", r"b = 2", r"\end{equation}",
+    r"\begin{equation}", r"c = 3 \changed{y}", r"\end{equation}",
+)
+
+
+def test_an_author_marked_hunk_matching_the_citation_is_used():
+    anchor, confidence = cards.choose_anchor(
+        AUTHOR_MARKED_BEFORE, AUTHOR_MARKED_AFTER, cited_number="3")
+    assert confidence == "corroborated_author_marked"
+    assert anchor.before_lines == (8, 9)          # equation 3, not equation 1
+
+
+def test_author_marked_hunks_that_all_miss_the_citation_do_not_anchor():
+    anchor, confidence = cards.choose_anchor(
+        AUTHOR_MARKED_BEFORE, AUTHOR_MARKED_AFTER, cited_number="40")
+    assert confidence == "unresolved"
+    assert anchor is None
+
+
+def test_two_citations_in_one_marked_paper_get_different_anchors():
+    both = json.loads(json.dumps(CANDIDATE))
+    both["objections"][0]["cited_locations"] = [
+        {"kind": "equation", "number": "1"}, {"kind": "equation", "number": "3"}]
+    built = cards.build(both, AUTHOR_MARKED_BEFORE, AUTHOR_MARKED_AFTER)
+    anchors = {tuple(gold["anchor_hunk"]["before_lines"]) for _, gold in built}
+    assert len(anchors) == 2
+
+
+# --- nothing is dropped without a record -------------------------------------
+# 153 of 793 objections cite only a theorem, lemma or section, and 83 of 462
+# candidates cite no equation at all. They previously produced no output row
+# of any kind.
+
+def test_a_non_equation_citation_is_recorded_rather_than_discarded():
+    theorem = json.loads(json.dumps(CANDIDATE))
+    theorem["objections"][0]["cited_locations"] = [{"kind": "theorem", "number": "2"}]
+    built = cards.build(theorem, V_BEFORE, V_AFTER)
+    model, gold, unresolved = cards.route(built)
+    assert model == []
+    assert len(unresolved) == 1
+    assert unresolved[0]["location_confidence"] == "unsupported_location_kind"
+    assert unresolved[0]["cited_location"]["kind"] == "theorem"
+    assert unresolved[0]["referee_quote"]
+
+
+# --- serve only exact anchors ------------------------------------------------
+
+def test_a_lone_but_distant_equation_change_is_not_served():
+    # Referee cites equation 4; only equation 1 changed. One candidate, but the
+    # ordinal is three away -- the same distance that produced a wrong anchor
+    # on real data.
+    after = list(V_BEFORE)
+    after[3] = r"E = m c^2 + \delta"
+    anchor, confidence = cards.choose_anchor(V_BEFORE, after, cited_number="4")
+    assert confidence == "corroborated_near"
+
+
+def test_a_lone_exact_equation_change_is_served():
+    anchor, confidence = cards.choose_anchor(V_BEFORE, V_AFTER, cited_number="3")
+    assert confidence == "corroborated_unique"
+
+
+# --- symbol agreement --------------------------------------------------------
+
+def test_a_bare_macro_alone_cannot_confirm_an_anchor():
+    # A lone \alpha appears in almost any excerpt; it is not evidence.
+    assert cards.symbol_agreement(r"(3) is wrong: $\alpha$ is misused.",
+                                  r"\begin{equation}\alpha = 1\end{equation}") is None
+
+
+def test_notation_differences_do_not_count_as_contradiction():
+    # Referees retype rather than copy source, so \rm and \mathrm must fold.
+    assert cards.symbol_agreement(r"should read $v_{\rm wrong}$",
+                                  r"p = m v_{\mathrm{wrong}}") is True
+
+
+def test_symbols_are_matched_against_the_hunk_not_the_padded_excerpt():
+    # The excerpt is padded by context and whole neighbouring environments, so
+    # a symbol from an adjacent equation must not confirm the anchor.
+    candidate = json.loads(json.dumps(CANDIDATE))
+    candidate["objections"][0]["quote"] = r"(3) is wrong: $c^2$ is misplaced."
+    (_, gold), = cards.build(candidate, V_BEFORE, V_AFTER)
+    assert gold["location_confidence"] == "contradicted_symbols"
+
+
+# --- the human queue needs alternatives --------------------------------------
+
+def test_near_anchors_carry_candidate_hunks_for_the_reviewer():
+    after = list(V_BEFORE)
+    after[3] = r"E = m c^2 + \delta"
+    after[7] = r"F = m a + \epsilon"
+    _, _, unresolved = cards.route(cards.build(CANDIDATE, V_BEFORE, after))
+    assert unresolved[0]["location_confidence"] == "corroborated_near"
+    assert len(unresolved[0]["candidate_hunks"]) >= 2
+
+
+# --- the firewall, checked exhaustively rather than by keyword ---------------
+# The earlier leakage test grepped for four literal strings, which is how a
+# readable card_id naming the cited equation reached the model-facing file.
+# This one compares every gold value against every model value.
+
+def leak_candidates() -> list[dict]:
+    base = json.loads(json.dumps(CANDIDATE))
+    variants = []
+    for number, quote in (
+        ("3", "(3) is incorrect, the momentum should not carry that factor."),
+        ("1", r"(1) is wrong: $c^2$ has the wrong power."),
+        ("3", r"(3) should read $v_{\rm fixed}$ throughout."),
+    ):
+        variant = json.loads(json.dumps(base))
+        variant["objections"][0]["quote"] = quote
+        variant["objections"][0]["cited_locations"] = [{"kind": "equation", "number": number}]
+        variants.append(variant)
+    return variants
+
+
+def test_no_gold_value_appears_in_any_model_card():
+    for candidate in leak_candidates():
+        for model, gold in cards.build(candidate, V_BEFORE, V_AFTER):
+            if model is None:
+                continue
+            blob = json.dumps(model)
+            for key, value in gold.items():
+                if key in {"card_id", "diff_summary", "human_severity_label",
+                           "evidence_class", "cited_location", "supporting_quotes"}:
+                    continue
+                if isinstance(value, str) and len(value) > 3:
+                    assert value not in blob, f"{key} leaked into the model card"
+
+
+def test_no_model_card_exposes_a_key_outside_the_allowed_set():
+    allowed = {"card_id", "excerpt_lines", "excerpt", "task"}
+    for candidate in leak_candidates():
+        for model, _ in cards.build(candidate, V_BEFORE, V_AFTER):
+            if model is not None:
+                assert set(model) == allowed
+
+
+def test_no_model_card_contains_the_after_version_text():
+    for candidate in leak_candidates():
+        for model, _ in cards.build(candidate, V_BEFORE, V_AFTER):
+            if model is not None:
+                assert "v_{\\rm fixed}" not in model["excerpt"]

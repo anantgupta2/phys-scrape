@@ -68,7 +68,7 @@ OBJECTION = re.compile(
 # Objections about presentation are not theoretical errors.
 PROSE = re.compile(
     r"\b(?:punctuation|grammar|spelling|wording|caption|reference list"
-    r"|readable|rewritten|cryptic|be numbered|typos?)\b",
+    r"|readable|cryptic|be numbered|typos?)\b",
     re.I,
 )
 

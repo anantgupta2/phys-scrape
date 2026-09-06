@@ -27,6 +27,7 @@ import difflib
 import hashlib
 import json
 import re
+import tarfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,7 +57,10 @@ SERVEABLE = frozenset({
 INLINE_MATH = re.compile(r"\$([^$]{2,80})\$")
 # A subscripted compound such as v_{\rm wrong} identifies a quantity; a bare
 # macro is weaker, and a formatting macro identifies nothing at all.
-COMPOUND = re.compile(r"(?:\\[A-Za-z]+|[A-Za-z])_\{[^{}]{1,40}\}|(?:\\[A-Za-z]+|[A-Za-z])_[A-Za-z0-9]")
+COMPOUND = re.compile(
+    r"(?:\\[A-Za-z]+|[A-Za-z])[_^]\{[^{}]{1,40}\}|(?:\\[A-Za-z]+|[A-Za-z])[_^][A-Za-z0-9]")
+# Referees retype expressions rather than copy source, so notation differs.
+FONT_MACRO = re.compile(r"\\(?:rm|mathrm|text|textrm|mathbf|mathit|mathsf|bm|boldsymbol)\b")
 BARE_MACRO = re.compile(r"\\[A-Za-z]{2,}")
 FORMATTING = frozenset({
     r"\rm", r"\mathrm", r"\text", r"\textrm", r"\mathcal", r"\mathbb", r"\mathbf",
@@ -153,27 +157,28 @@ def choose_anchor(old: list[str], new: list[str], cited_number: str) -> tuple[Hu
     if not candidates:
         return None, "unresolved"
 
-    marked = [h for h in candidates
-              if AUTHOR_MARKED.search("\n".join(new[slice(*h.after_lines)]))]
-    if marked:
-        # Authors who tag their own revisions have localized the fix for us.
-        return marked[0], "corroborated_author_marked"
-
     spans = environment_spans(old)
     within = []
-    for hunk in candidates:
+    for index, hunk in enumerate(candidates):
         span = hunk_span(hunk, spans)
         distance = citation_distance(span, str(cited_number)) if span else None
-        if distance is not None and distance <= ORDINAL_TOLERANCE:
-            within.append((distance, hunk))
+        if distance is None or distance > ORDINAL_TOLERANCE:
+            continue
+        marked = bool(AUTHOR_MARKED.search("\n".join(new[slice(*hunk.after_lines)])))
+        within.append((distance, not marked, index, hunk))
     if not within:
         return None, "unresolved"
-    if len(candidates) == 1:
-        return candidates[0], "corroborated_unique"
-    distance, hunk = min(within, key=lambda pair: pair[0])
-    # An exact ordinal match is evidence; a near one is a guess about which of
-    # several changed equations the referee meant.
-    return hunk, "corroborated_exact" if distance == 0 else "corroborated_near"
+
+    # Rank by the referee's own statement of location first. An author tag
+    # says only that the authors touched something: taking the first tagged
+    # hunk anchored every card in a paper to the same equation, and 20 of the
+    # 74 changed hunks on arXiv:2207.00854 are tagged.
+    distance, unmarked, _, hunk = min(within)
+    if not unmarked:
+        return hunk, "corroborated_author_marked"
+    if distance:
+        return hunk, "corroborated_near"
+    return hunk, "corroborated_unique" if len(candidates) == 1 else "corroborated_exact"
 
 
 def excerpt(lines: list[str], hunk: Hunk) -> tuple[int, int, str]:
@@ -189,9 +194,15 @@ def excerpt(lines: list[str], hunk: Hunk) -> tuple[int, int, str]:
     return start + 1, end, "\n".join(lines[start:end])
 
 
+def _span_record(start: int, end: int) -> list[int]:
+    # An insertion or deletion has an empty range on one side; report it as
+    # empty rather than as an inverted pair.
+    return [] if end <= start else [start + 1, end]
+
+
 def _hunk_record(hunk: Hunk) -> dict:
-    return {"before_lines": [hunk.before_lines[0] + 1, hunk.before_lines[1]],
-            "after_lines": [hunk.after_lines[0] + 1, hunk.after_lines[1]]}
+    return {"before_lines": _span_record(*hunk.before_lines),
+            "after_lines": _span_record(*hunk.after_lines)}
 
 
 def build(candidate: dict, old: list[str], new: list[str],
@@ -206,61 +217,101 @@ def build(candidate: dict, old: list[str], new: list[str],
     grouped: dict[tuple[str, str], list[dict]] = {}
     for objection in candidate.get("objections", ()):
         for location in objection.get("cited_locations", ()):
-            if location.get("kind") != "equation":
-                continue
             grouped.setdefault((location["kind"], location["number"]), []).append(objection)
 
     built = []
     for (kind, number), group in grouped.items():
-            location = {"kind": kind, "number": number}
-            primary = group[0]
-            anchor, confidence = choose_anchor(old, new, number)
-            source = anchor or (fallback[0] if fallback else None)
-            if source is None:
-                continue
-            start, end, text = excerpt(old, source)
-            # Symbols the referee typed outrank any ordinal reasoning: their
-            # presence confirms the anchor, their absence contradicts it.
-            if anchor is not None:
-                agreement = symbol_agreement(primary["quote"], text)
-                if agreement is True:
-                    confidence = "corroborated_symbol"
-                elif agreement is False:
-                    confidence = "contradicted_symbols"
-            card_id = f"{candidate['scipost_identifier']}-{kind}{number}"
-            built.append((
-                {
-                    "card_id": card_id,
-                    "arxiv_id": candidate["arxiv_id"],
-                    "version": candidate["v_before"],
-                    "excerpt_lines": [start, end],
-                    "excerpt": text,
-                    "task": TASK,
-                },
-                {
-                    "card_id": card_id,
-                    "arxiv_id": candidate["arxiv_id"],
-                    "title": candidate.get("title"),
-                    "scipost_submission_url": candidate.get("scipost_submission_url"),
-                    "main_tex": main_tex,
-                    "report_url": primary.get("report_url"),
-                    "report_doi": primary.get("report_doi"),
-                    "referee_quote": primary["quote"],
-                    "supporting_quotes": [o["quote"] for o in group[1:]],
-                    "referee_validity_rating": primary.get("referee_validity_rating"),
-                    "cited_location": location,
-                    "location_confidence": confidence,
-                    "anchor_hunk": _hunk_record(anchor) if anchor else None,
-                    "candidate_hunks": [_hunk_record(h) for h in fallback[:12]] if anchor is None else [],
-                    "v_before": candidate["v_before"],
-                    "v_after": candidate["v_after"],
-                    "diff_summary": {"added": added, "deleted": deleted},
-                    "text_hash": "sha256:" + hashlib.sha256(primary["quote"].encode()).hexdigest(),
-                    "evidence_class": "referee_stated_technical",
-                    "human_severity_label": "unreviewed",
-                },
-            ))
+        location = {"kind": kind, "number": number}
+        primary = group[0]
+        card_id = card_identifier(candidate["scipost_identifier"], kind, number)
+        gold = {
+            "card_id": card_id,
+            "arxiv_id": candidate["arxiv_id"],
+            "version": candidate["v_before"],
+            "scipost_identifier": candidate["scipost_identifier"],
+            "title": candidate.get("title"),
+            "scipost_submission_url": candidate.get("scipost_submission_url"),
+            "main_tex": main_tex,
+            "report_url": primary.get("report_url"),
+            "report_doi": primary.get("report_doi") or None,
+            "referee_quote": primary["quote"],
+            "supporting_quotes": [o["quote"] for o in group[1:]],
+            "referee_validity_rating": primary.get("referee_validity_rating"),
+            "cited_location": location,
+            "v_before": candidate["v_before"],
+            "v_after": candidate["v_after"],
+            "diff_summary": {"added": added, "deleted": deleted},
+            "text_hash": "sha256:" + hashlib.sha256(primary["quote"].encode()).hexdigest(),
+            "evidence_class": "referee_stated_technical",
+            "human_severity_label": "unreviewed",
+        }
+
+        if kind != "equation":
+            # Theorem, lemma and section citations are parsed but cannot be
+            # anchored by an equation diff. They are recorded for a reviewer
+            # rather than dropped: 153 of 793 objections cite only these.
+            built.append((None, gold | {
+                "location_confidence": "unsupported_location_kind",
+                "anchor_hunk": None,
+                "candidate_hunks": [_hunk_record(h) for h in fallback[:12]],
+            }))
+            continue
+
+        anchor, confidence = choose_anchor(old, new, number)
+        source = anchor or (fallback[0] if fallback else None)
+        if source is None:
+            built.append((None, gold | {
+                "location_confidence": "no_source_change",
+                "anchor_hunk": None,
+                "candidate_hunks": [],
+            }))
+            continue
+
+        start_line, end_line, text = excerpt(old, source)
+        if anchor is not None:
+            # Test the symbols against the hunk itself. The excerpt is padded
+            # with context and whole neighbouring environments, so a symbol
+            # from an adjacent equation would confirm any anchor.
+            hunk_text = "\n".join(old[slice(*anchor.before_lines)] +
+                                   new[slice(*anchor.after_lines)])
+            agreement = symbol_agreement(primary["quote"], hunk_text)
+            if agreement is True:
+                confidence = "corroborated_symbol"
+            elif agreement is False:
+                confidence = "contradicted_symbols"
+
+        served = confidence in SERVEABLE
+        built.append((
+            {
+                "card_id": card_id,
+                "excerpt_lines": [start_line, end_line],
+                "excerpt": text,
+                "task": TASK,
+            } if served else None,
+            gold | {
+                "location_confidence": confidence,
+                "anchor_hunk": _hunk_record(anchor) if anchor else None,
+                # A reviewer needs the alternatives, which is the whole point
+                # when the chosen anchor was rejected.
+                "candidate_hunks": [] if served else [_hunk_record(h) for h in fallback[:12]],
+            },
+        ))
     return built
+
+
+def normalize_symbol(text: str) -> str:
+    """Fold font macros and whitespace so \\rm and \\mathrm compare equal."""
+    return re.sub(r"[\s{}]+", "", FONT_MACRO.sub("", text))
+
+
+def card_identifier(scipost_identifier: str, kind: str, number: str) -> str:
+    """A stable, opaque id.
+
+    A readable id would name the cited equation, and the task asks the model
+    to say where the error is; the id must not answer that.
+    """
+    seed = f"{scipost_identifier}|{kind}|{number}".encode()
+    return hashlib.sha256(seed).hexdigest()[:16]
 
 
 def quoted_symbols(quote: str) -> set[str]:
@@ -279,14 +330,14 @@ def quoted_symbols(quote: str) -> set[str]:
 
 def symbol_agreement(quote: str, excerpt_text: str) -> bool | None:
     """True/False if the referee's symbols do/do not appear; None if untestable."""
-    symbols = quoted_symbols(quote)
-    if not symbols:
+    # Only a sub/superscripted compound names a specific quantity. A lone
+    # \alpha appears in almost any excerpt, so its presence is not evidence
+    # and its absence is not counter-evidence: report untestable instead.
+    compounds = {s for s in quoted_symbols(quote) if "_" in s or "^" in s}
+    if not compounds:
         return None
-    # A subscripted compound names a specific quantity; fall back to bare
-    # macros only when the referee quoted none, since a lone \alpha is common
-    # enough to confirm almost any excerpt.
-    compounds = {symbol for symbol in symbols if "_" in symbol}
-    return any(symbol in excerpt_text for symbol in (compounds or symbols))
+    haystack = normalize_symbol(excerpt_text)
+    return any(normalize_symbol(symbol) in haystack for symbol in compounds)
 
 
 def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -304,11 +355,11 @@ def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[
     """
     model_cards, gold_cards, unresolved = [], [], []
     for model, gold in built:
-        if gold["location_confidence"] in SERVEABLE:
+        if model is None:
+            unresolved.append(gold)
+        else:
             model_cards.append(model)
             gold_cards.append(gold)
-        else:
-            unresolved.append(gold)
     return model_cards, gold_cards, unresolved
 
 
@@ -334,12 +385,21 @@ def main() -> None:
     for row in rows:
         folder = args.source_dir / row["arxiv_id"].replace("/", "_")
         try:
-            name, old = audit.main_tex(audit.source_file(folder, row["v_before"]))
-            _, new = audit.main_tex(audit.source_file(folder, row["v_after"]))
-        except Exception as exc:  # sources absent or unreadable; keep for retry
+            before_name, old = audit.main_tex(audit.source_file(folder, row["v_before"]))
+            after_name, new = audit.main_tex(audit.source_file(folder, row["v_after"]))
+        except (OSError, tarfile.TarError, ValueError) as exc:
             skipped.append({"arxiv_id": row["arxiv_id"], "reason": str(exc)})
             continue
-        model_part, gold_part, unresolved_part = route(build(row, old, new, main_tex=name))
+        if before_name != after_name:
+            # main_tex falls back to the largest .tex when no toplevel is
+            # declared, so the two revisions can resolve to different files and
+            # the diff would be noise presented as a localized change.
+            skipped.append({"arxiv_id": row["arxiv_id"],
+                            "reason": f"main TeX differs between revisions: "
+                                      f"{before_name} vs {after_name}"})
+            continue
+        model_part, gold_part, unresolved_part = route(
+            build(row, old, new, main_tex=before_name))
         model_cards += model_part
         gold_cards += gold_part
         unresolved += unresolved_part
@@ -350,15 +410,21 @@ def main() -> None:
                 [g | {"retrieved_at": stamp} for g in gold_cards])
     write_jsonl(args.output_dir / "error_cards_unresolved.jsonl",
                 [g | {"retrieved_at": stamp} for g in unresolved])
-    if skipped:
-        write_jsonl(args.output_dir / "error_cards_skipped.jsonl", skipped)
+    write_jsonl(args.output_dir / "error_cards_skipped.jsonl", skipped)
+    missing_doi = sum(1 for g in gold_cards + unresolved if not g.get("report_doi"))
     confidence: dict[str, int] = {}
     for gold in gold_cards:
         confidence[gold["location_confidence"]] = confidence.get(gold["location_confidence"], 0) + 1
+    for gold in unresolved:
+        confidence[gold["location_confidence"]] = confidence.get(gold["location_confidence"], 0) + 1
     print(f"{len(rows)} candidates -> {len(model_cards)} benchmark cards, "
-          f"{len(unresolved)} for human localization ({len(skipped)} sources missing)")
+          f"{len(unresolved)} for human localization, {len(skipped)} sources unusable")
     for key in sorted(confidence):
-        print(f"  {key:32} {confidence[key]}")
+        served = " (served)" if key in SERVEABLE else ""
+        print(f"  {key:30} {confidence[key]:4}{served}")
+    if missing_doi:
+        print(f"  note: {missing_doi} gold records have no report DOI; "
+              f"attribution falls back to the submission URL")
 
 
 if __name__ == "__main__":
