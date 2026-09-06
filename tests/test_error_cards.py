@@ -198,5 +198,109 @@ def test_model_card_never_contains_referee_or_after_version_content():
 def test_model_card_holds_only_the_before_version_excerpt():
     (model, _), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
     assert "v_{\\rm wrong}" in model["excerpt"]
-    assert set(model) == {"card_id", "arxiv_id", "version", "main_tex",
+    assert set(model) == {"card_id", "arxiv_id", "version",
                           "excerpt_lines", "excerpt", "task"}
+
+
+# --- section-qualified equation numbers --------------------------------------
+# Physics papers commonly use \numberwithin{equation}{section}, so "(3.26)" is
+# the 26th equation of section 3 rather than the 326th of the document.
+
+SECTIONED = tex(
+    r"\section{One}",            # 0
+    r"\begin{equation}",         # 1   -> 1.1
+    r"a = 1",                    # 2
+    r"\end{equation}",           # 3
+    r"\section{Two}",            # 4
+    r"\begin{equation}",         # 5   -> 2.1
+    r"b = 2",                    # 6
+    r"\end{equation}",           # 7
+    r"\begin{equation}",         # 8   -> 2.2
+    r"c = 3",                    # 9
+    r"\end{equation}",           # 10
+    r"\begin{equation}",         # 11  -> 2.3
+    r"d = 4",                    # 12
+    r"\end{equation}",           # 13
+)
+
+
+def test_environments_carry_a_section_qualified_label():
+    labels = [(start, label) for start, _, _, label in cards.environment_spans(SECTIONED)]
+    assert labels == [(1, "1.1"), (5, "2.1"), (8, "2.2"), (11, "2.3")]
+
+
+def test_a_dotted_citation_resolves_against_section_numbering():
+    after = list(SECTIONED)
+    after[2] = "a = 1 + x"        # change equation 1.1 as well
+    after[12] = "d = 4 + y"       # and equation 2.3
+    anchor, confidence = cards.choose_anchor(SECTIONED, after, cited_number="2.3")
+    assert confidence == "corroborated_ordinal"
+    assert anchor.before_lines == (12, 13)
+
+
+def test_a_dotted_citation_with_one_candidate_is_unique():
+    after = list(SECTIONED)
+    after[12] = "d = 4 + y"
+    anchor, confidence = cards.choose_anchor(SECTIONED, after, cited_number="2.3")
+    assert confidence == "corroborated_unique"
+    assert anchor.before_lines == (12, 13)
+
+
+def test_a_dotted_citation_naming_no_existing_equation_is_unresolved():
+    after = list(SECTIONED)
+    after[12] = "d = 4 + y"
+    anchor, confidence = cards.choose_anchor(SECTIONED, after, cited_number="9.7")
+    assert confidence == "unresolved"
+    assert anchor is None
+
+
+def test_plain_ordinals_still_work_in_a_sectioned_document():
+    after = list(SECTIONED)
+    after[12] = "d = 4 + y"
+    anchor, confidence = cards.choose_anchor(SECTIONED, after, cited_number="4")
+    assert confidence == "corroborated_unique"
+    assert anchor.before_lines == (12, 13)
+
+
+# --- one card per cited location ---------------------------------------------
+# Real: report 1 on arXiv:2002.02120v2 objects to equation (21) in three
+# separate sentences. The model-facing side is identical for all three, so
+# emitting three cards would duplicate the benchmark item.
+
+MULTI = json.loads(json.dumps(CANDIDATE))
+MULTI["objections"] = [
+    {"quote": "(3), presented as the main result, does not agree with the standard form.",
+     "cited_locations": [{"kind": "equation", "number": "3"}],
+     "report_nr": 1, "report_url": "https://scipost.org/x/#report_1",
+     "report_doi": "10.21468/SciPost.Report.1", "referee_validity_rating": "ok"},
+    {"quote": "(3) is incorrect, and the derivation leading to it must contain an error.",
+     "cited_locations": [{"kind": "equation", "number": "3"}],
+     "report_nr": 1, "report_url": "https://scipost.org/x/#report_1",
+     "report_doi": "10.21468/SciPost.Report.1", "referee_validity_rating": "ok"},
+]
+
+
+def test_repeated_objections_to_one_equation_make_a_single_card():
+    built = cards.build(MULTI, V_BEFORE, V_AFTER)
+    assert len(built) == 1
+
+
+def test_card_ids_are_unique_within_a_candidate():
+    ids = [model["card_id"] for model, _ in cards.build(MULTI, V_BEFORE, V_AFTER)]
+    assert len(ids) == len(set(ids))
+
+
+def test_supporting_quotes_are_retained_on_the_gold_side():
+    (_, gold), = cards.build(MULTI, V_BEFORE, V_AFTER)
+    assert gold["referee_quote"].startswith("(3), presented as the main result")
+    assert len(gold["supporting_quotes"]) == 1
+    assert "must contain an error" in gold["supporting_quotes"][0]
+
+
+def test_main_tex_filename_stays_on_the_gold_side():
+    # Real: 'SciPostPhys_arxiv.tex'. The filename can name the venue, and an
+    # evaluated model has no use for it.
+    model, gold = cards.build(CANDIDATE, V_BEFORE, V_AFTER, main_tex="SciPostPhys_arxiv.tex")[0]
+    assert "main_tex" not in model
+    assert gold["main_tex"] == "SciPostPhys_arxiv.tex"
+    assert "scipost" not in json.dumps(model).lower()
