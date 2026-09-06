@@ -177,3 +177,15 @@ def test_wire_format_fields_are_present_in_the_recorded_response():
     for row in submissions():
         assert {"identifier", "thread_hash", "is_resubmission_of", "status",
                 "specialties", "acad_field", "reports", "url"} <= set(row)
+
+
+def test_a_bare_zero_is_not_an_equation_reference():
+    # Real: "the delta(0) in Fourier should be related to..." -- mathematical
+    # notation, not a citation. Equation numbering starts at 1.
+    assert mine.cited_locations("the delta(0) in Fourier should be related") == []
+
+
+def test_a_bare_single_digit_reference_is_still_parsed():
+    assert mine.cited_locations("I do not understand (8).") == [
+        {"kind": "equation", "number": "8"}
+    ]

@@ -81,7 +81,7 @@ LOCATION_PATTERNS = (
 )
 # A bare "(8)" is how referees most often cite an equation.  Three digits at
 # most, so a year such as "(2020)" is not mistaken for a reference.
-BARE_REFERENCE = re.compile(r"\((\d{1,3}(?:\.\d+)?)\)")
+BARE_REFERENCE = re.compile(r"\(([1-9]\d{0,2}(?:\.\d+)?)\)")
 
 SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 ARXIV_IDENTIFIER = re.compile(
