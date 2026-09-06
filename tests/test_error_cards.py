@@ -108,7 +108,7 @@ def test_several_hunks_are_resolved_by_ordinal_proximity():
     after = list(V_AFTER)
     after[3] = r"E = m c^2 + \delta"          # also change equation 1
     anchor, confidence = cards.choose_anchor(V_BEFORE, after, cited_number="3")
-    assert confidence == "corroborated_ordinal"
+    assert confidence == "corroborated_exact"
     assert anchor.before_lines == (11, 12)     # equation 3, not equation 1
 
 
@@ -234,7 +234,7 @@ def test_a_dotted_citation_resolves_against_section_numbering():
     after[2] = "a = 1 + x"        # change equation 1.1 as well
     after[12] = "d = 4 + y"       # and equation 2.3
     anchor, confidence = cards.choose_anchor(SECTIONED, after, cited_number="2.3")
-    assert confidence == "corroborated_ordinal"
+    assert confidence == "corroborated_exact"
     assert anchor.before_lines == (12, 13)
 
 
@@ -334,3 +334,34 @@ def test_the_human_queue_carries_no_model_facing_excerpt():
     stubborn["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "97"}]
     _, _, unresolved = cards.route(cards.build(stubborn, V_BEFORE, V_AFTER))
     assert "excerpt" not in unresolved[0]
+
+
+# --- exact versus near anchors -----------------------------------------------
+# Measured over 37 real anchored cards, 20 matched the cited number exactly and
+# 17 sat one to three ordinals away. A near match is a guess about which
+# equation the referee meant, so it is reviewed rather than served.
+
+def test_an_exact_ordinal_match_is_distinguished_from_a_near_one():
+    after = list(V_BEFORE)
+    after[3] = r"E = m c^2 + \delta"      # equation 1 changes
+    after[7] = r"F = m a + \epsilon"      # equation 2 changes; equation 3 does not
+    anchor, confidence = cards.choose_anchor(V_BEFORE, after, cited_number="3")
+    assert confidence == "corroborated_near"
+    assert anchor.before_lines == (7, 8)   # equation 2, the closest change
+
+
+def test_near_anchors_go_to_the_human_queue():
+    candidate = json.loads(json.dumps(CANDIDATE))
+    after = list(V_BEFORE)
+    after[3] = r"E = m c^2 + \delta"
+    after[7] = r"F = m a + \epsilon"
+    model, gold, unresolved = cards.route(cards.build(candidate, V_BEFORE, after))
+    assert model == [] and gold == []
+    assert unresolved[0]["location_confidence"] == "corroborated_near"
+
+
+def test_exact_anchors_reach_the_benchmark_set():
+    model, gold, unresolved = cards.route(cards.build(CANDIDATE, V_BEFORE, V_AFTER))
+    assert len(model) == 1 and unresolved == []
+    assert gold[0]["location_confidence"] in {
+        "corroborated_unique", "corroborated_exact", "corroborated_author_marked"}

@@ -46,6 +46,12 @@ ANY_END = re.compile(r"\\end\{(equation|align|gather|multline|eqnarray)\}")
 SECTION = re.compile(r"\\section\{")
 AUTHOR_MARKED = re.compile(r"\\changed\b|\\revised\b|\\added\b")
 
+# Confidence levels whose excerpt is trustworthy enough to serve as a question.
+# "corroborated_near" and "unresolved" are reviewed by a human instead.
+SERVEABLE = frozenset({
+    "corroborated_author_marked", "corroborated_unique", "corroborated_exact",
+})
+
 TASK = (
     "Find any mathematical or physical mistake in this excerpt, state where it "
     "occurs, and explain why it fails."
@@ -152,7 +158,10 @@ def choose_anchor(old: list[str], new: list[str], cited_number: str) -> tuple[Hu
         return None, "unresolved"
     if len(candidates) == 1:
         return candidates[0], "corroborated_unique"
-    return min(within, key=lambda pair: pair[0])[1], "corroborated_ordinal"
+    distance, hunk = min(within, key=lambda pair: pair[0])
+    # An exact ordinal match is evidence; a near one is a guess about which of
+    # several changed equations the referee meant.
+    return hunk, "corroborated_exact" if distance == 0 else "corroborated_near"
 
 
 def excerpt(lines: list[str], hunk: Hunk) -> tuple[int, int, str]:
@@ -237,19 +246,23 @@ def build(candidate: dict, old: list[str], new: list[str],
 def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[dict]]:
     """Split cards into the model-facing set and the human localization queue.
 
-    An unresolved card's excerpt is a guess at which changed hunk the referee
-    meant, so it may not contain the error at all.  Serving it would ask an
-    unanswerable question, so it goes to a reviewer with its candidate hunks
-    rather than into the benchmark.  It is kept, not discarded: a referee can
+    A card is served only when its excerpt is anchored by evidence: the authors
+    marked the change, it was the only changed equation, or the ordinal matched
+    the cited number exactly.  A near match is a guess about which of several
+    changed equations the referee meant, and an unresolved card's excerpt may
+    not contain the error at all; serving either would ask a question the
+    excerpt cannot answer and score the model wrong for our own imprecision.
+
+    Both are kept, with their candidate hunks, for a reviewer.  A referee can
     be right about a paper whose authors rebutted them.
     """
     model_cards, gold_cards, unresolved = [], [], []
     for model, gold in built:
-        if gold["location_confidence"] == "unresolved":
-            unresolved.append(gold)
-        else:
+        if gold["location_confidence"] in SERVEABLE:
             model_cards.append(model)
             gold_cards.append(gold)
+        else:
+            unresolved.append(gold)
     return model_cards, gold_cards, unresolved
 
 
