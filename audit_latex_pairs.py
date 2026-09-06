@@ -70,14 +70,20 @@ def source_file(paper_dir: Path, version: int) -> Path:
     raise ValueError(f"no retained source for v{version} in {paper_dir}")
 
 
+# "downloaded_v1_v2" predates support for other version pairs; both mean a
+# retained pair of sources.
+PAIR_STATUSES = {"downloaded_v1_v2", "downloaded_pair"}
+
+
 def audit(row: dict, source_dir: Path) -> dict:
     result = {"arxiv_id": row["arxiv_id"], "comment": row.get("comment", ""), "version_count": row.get("version_count")}
-    if row.get("source_status") != "downloaded_v1_v2":
+    if row.get("source_status") not in PAIR_STATUSES:
         return result | {"triage": "exclude_no_pair", "reason": row.get("source_status")}
     folder = source_dir / row["arxiv_id"].replace("/", "_")
+    before, after = (int(v) for v in (row.get("source_versions") or (1, 2)))
     try:
-        old_name, old = main_tex(source_file(folder, 1))
-        new_name, new = main_tex(source_file(folder, 2))
+        old_name, old = main_tex(source_file(folder, before))
+        new_name, new = main_tex(source_file(folder, after))
     except (OSError, tarfile.TarError, ValueError) as exc:
         return result | {"triage": "unreadable_source", "reason": str(exc)}
     matcher = difflib.SequenceMatcher(a=old, b=new, autojunk=False)

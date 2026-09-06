@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import json
 import sys
 import tarfile
 from pathlib import Path
@@ -128,3 +129,65 @@ def test_audit_still_reads_a_tar_source(tmp_path):
     name, lines = audit.main_tex(path)
     assert name == "main.tex"
     assert lines == ["line one", "line two"]
+
+
+# --- Version pairs: a review round is not always v1 -> v2 --------------------
+# SciPost thread 2207.00854 ran v2 -> v3. Fetching v1/v2 there retrieves two
+# revisions the referees never discussed.
+
+def test_fetch_sources_downloads_the_version_pair_named_by_the_row(tmp_path, monkeypatch):
+    monkeypatch.setattr(collect, "version_count", lambda arxiv_id, session: 3)
+    sources = tmp_path / "src"
+    paper = sources / "2207.00854"
+    paper.mkdir(parents=True)
+    for version in (2, 3):
+        write_tar(paper / f"v{version}.tar", "fracton.tex", b"\\documentclass{article}")
+    manifest = tmp_path / "in.jsonl"
+    manifest.write_text(
+        json.dumps({"arxiv_id": "2207.00854", "source_versions": [2, 3]}) + "\n",
+        encoding="utf-8",
+    )
+
+    row = collect.fetch_sources(manifest, sources, delay=0)[0]
+
+    assert row["source_status"] == "downloaded_pair"
+    assert [a["version"] for a in row["source_artifacts"]] == [2, 3]
+
+
+def test_fetch_sources_still_defaults_to_v1_v2(tmp_path, monkeypatch):
+    monkeypatch.setattr(collect, "version_count", lambda arxiv_id, session: 2)
+    sources = tmp_path / "src"
+    paper = sources / "2401.01234"
+    paper.mkdir(parents=True)
+    for version in (1, 2):
+        write_tar(paper / f"v{version}.tar", "main.tex", b"\\documentclass{article}")
+    manifest = tmp_path / "in.jsonl"
+    manifest.write_text(json.dumps({"arxiv_id": "2401.01234"}) + "\n", encoding="utf-8")
+
+    row = collect.fetch_sources(manifest, sources, delay=0)[0]
+
+    assert [a["version"] for a in row["source_artifacts"]] == [1, 2]
+
+
+def test_audit_reads_the_version_pair_named_by_the_row(tmp_path):
+    paper = tmp_path / "2207.00854"
+    paper.mkdir(parents=True)
+    write_tar(paper / "v2.tar", "fracton.tex", b"before\n")
+    write_tar(paper / "v3.tar", "fracton.tex", b"after\n")
+    row = {"arxiv_id": "2207.00854", "source_status": "downloaded_pair",
+           "source_versions": [2, 3]}
+
+    result = audit.audit(row, tmp_path)
+
+    assert result["triage"] != "unreadable_source"
+    assert (result["v1_main_tex"], result["v2_main_tex"]) == ("fracton.tex", "fracton.tex")
+
+
+def test_audit_still_accepts_the_legacy_status_value(tmp_path):
+    paper = tmp_path / "2401.01234"
+    paper.mkdir(parents=True)
+    write_tar(paper / "v1.tar", "main.tex", b"before\n")
+    write_tar(paper / "v2.tar", "main.tex", b"after\n")
+    row = {"arxiv_id": "2401.01234", "source_status": "downloaded_v1_v2"}
+
+    assert audit.audit(row, tmp_path)["triage"] != "exclude_no_pair"

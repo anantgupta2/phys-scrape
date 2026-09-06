@@ -245,16 +245,21 @@ def fetch_sources(input_path: Path, source_dir: Path, delay: float) -> list[dict
     session = requests.Session()
     for row in rows:
         arxiv_id = row["arxiv_id"]
+        # A peer-review round is not always v1 -> v2. SciPost thread 2207.00854
+        # ran v2 -> v3, and fetching v1/v2 there retrieves two revisions the
+        # referees never saw.
+        before, after = (int(v) for v in (row.get("source_versions") or (1, 2)))
         count = version_count(arxiv_id, session)
         row["version_count"] = count
-        row["source_status"] = "skipped_single_version" if not count or count < 2 else "pending"
-        if not count or count < 2:
+        if not count or count < after:
+            row["source_status"] = "skipped_missing_version"
             continue
+        row["source_status"] = "pending"
         paper_dir = source_dir / arxiv_id.replace("/", "_")
         paper_dir.mkdir(parents=True, exist_ok=True)
         row["source_artifacts"] = []
         try:
-            for version in (1, 2):
+            for version in (before, after):
                 # A 200 response can be an HTML throttle/interstitial. Re-fetch
                 # invalid existing files too, but write atomically so a valid
                 # source is never replaced by a partial response.
@@ -284,7 +289,7 @@ def fetch_sources(input_path: Path, source_dir: Path, delay: float) -> list[dict
                 row["source_artifacts"].append({"version": version, "path": str(output), "kind": kind, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
                 time.sleep(delay)
             else:
-                row["source_status"] = "downloaded_v1_v2"
+                row["source_status"] = "downloaded_pair"
         except requests.RequestException as exc:
             row["source_status"] = "download_failed"
             row["source_error"] = str(exc)
