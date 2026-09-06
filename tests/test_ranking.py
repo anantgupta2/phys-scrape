@@ -121,3 +121,34 @@ def test_every_ranked_card_explains_its_score():
     for ranked in rank_cards.rank([card(), card(card_id="b", tier="stated_error")]):
         assert isinstance(ranked["rank_score"], (int, float))
         assert isinstance(ranked["rank_signals"], list)
+
+
+# --- questions are weaker evidence than assertions ---------------------------
+# Real: "What if D>d does not hold, then in Eq. (1) would there be an
+# interaction between non-opposing QDs as well?" ranked second on the corpus,
+# because "does not hold" read as blocking language inside a conditional
+# question. A referee asking is not a referee asserting.
+
+def test_a_question_does_not_count_as_blocking_language():
+    asked = rank_cards.score(card(
+        tier="stated_error",
+        referee_quote="What if D>d does not hold, then in Eq. (1) would there be "
+                      "an interaction between non-opposing QDs as well?"))
+    assert "blocking" not in asked.signals
+    assert "question" in asked.signals
+
+
+def test_a_question_scores_below_the_same_claim_asserted():
+    asked = rank_cards.score(card(tier="stated_error",
+                                  referee_quote="Is Eq. (10) wrong here?"))
+    asserted = rank_cards.score(card(tier="stated_error",
+                                     referee_quote="Eq. (10) is wrong."))
+    assert asked.total < asserted.total
+
+
+def test_a_genuine_blocking_assertion_still_scores():
+    stated = rank_cards.score(card(
+        tier="stated_error",
+        referee_quote="The theorem does not hold, and the paper contains a critical error."))
+    assert "blocking" in stated.signals
+    assert "question" not in stated.signals

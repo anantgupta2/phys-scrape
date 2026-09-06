@@ -46,6 +46,10 @@ ANCHORED = frozenset({
 COMPACT_REVISION_LINES = 120
 
 # Weight, signal name, and the test that earns it.
+# A referee asking is not a referee asserting: "What if D>d does not hold,
+# then in Eq. (1) would there be ...?" is a query, not a finding.
+QUESTION = re.compile(r"\?\s*$|^\s*(?:what|why|how|is|are|does|do|can|could|should|would|shouldn|isn)\b", re.I)
+
 SIGNALS: tuple[tuple[int, str], ...] = (
     (4, "blocking"),
     (3, "unhedged_error"),
@@ -57,6 +61,7 @@ SIGNALS: tuple[tuple[int, str], ...] = (
     (1, "compact_revision"),
     (1, "referee_doubts_validity"),
     (1, "restated"),
+    (-2, "question"),
 )
 WEIGHT = {name: weight for weight, name in SIGNALS}
 
@@ -72,7 +77,10 @@ def _signals(card: dict) -> list[str]:
     diff = card.get("diff_summary") or {}
     changed = (diff.get("added") or 0) + (diff.get("deleted") or 0)
     found = []
-    if BLOCKING.search(quote):
+    asked = bool(QUESTION.search((card.get("referee_quote") or "").strip()))
+    if asked:
+        found.append("question")
+    if BLOCKING.search(quote) and not asked:
         found.append("blocking")
     if UNHEDGED.search(quote):
         found.append("unhedged_error")
