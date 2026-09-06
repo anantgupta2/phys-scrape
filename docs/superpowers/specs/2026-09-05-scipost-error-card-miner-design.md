@@ -124,10 +124,12 @@ judgment, no model involvement.
    Specialties ending in `- Experiment` are excluded by omission.
 2. `identifier` is an arXiv identifier, i.e. it does not start with `scipost_`.
 3. At least one report with `status == "vetted"`.
-4. `status == "resubmitted"`, which is SciPost's own marker that this round was
-   superseded by a later one and therefore that the authors responded. The
-   `thread_hash` group then supplies the identifier of the following round,
-   which names the arXiv version containing the fix.
+4. Another round in the same `thread_hash` group names this one in its
+   `is_resubmission_of`, proving the authors responded and supplying the arXiv
+   version that contains the fix. SciPost's own `status == "resubmitted"`
+   marker agrees with this on the whole corpus -- no row has a next round
+   without the status -- but the link is what the code requires, because it is
+   also what yields the version pair.
 5. At least one vetted report containing a **single sentence** that both
    objects and cites a numbered location, and is not about presentation.
 

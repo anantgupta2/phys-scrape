@@ -28,6 +28,8 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from jsonl_io import write_jsonl
+
 
 API = "https://export.arxiv.org/api/query"
 ABS = "https://export.arxiv.org/abs/{paper_id}"
@@ -223,19 +225,6 @@ def version_count(arxiv_id: str, session: requests.Session) -> int | None:
     response.raise_for_status()
     versions = [int(v) for v in VERSION_RE.findall(response.text)]
     return max(versions) if versions else None
-
-
-def write_jsonl(path: Path, records: Iterable[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as handle:
-            for record in records:
-                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-        temporary.replace(path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
 
 
 def fetch_sources(input_path: Path, source_dir: Path, delay: float) -> list[dict]:

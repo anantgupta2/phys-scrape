@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Iterable
 
 import audit_latex_pairs as audit
+from jsonl_io import write_jsonl
 
 
 CONTEXT_LINES = 10
@@ -430,15 +431,6 @@ def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[
             model_cards.append(model)
             gold_cards.append(gold)
     return model_cards, gold_cards, unresolved
-
-
-def write_jsonl(path: Path, records: Iterable[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-    temporary.replace(path)
 
 
 def main() -> None:

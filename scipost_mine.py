@@ -26,6 +26,8 @@ from typing import Iterable
 
 import requests
 
+from jsonl_io import write_jsonl
+
 
 API = "https://scipost.org/api/submissions/"
 SITE = "https://scipost.org"
@@ -93,7 +95,7 @@ ABBREVIATION = re.compile(
 )
 INITIAL = re.compile(r"\b[A-Z]\.$")
 ARXIV_IDENTIFIER = re.compile(
-    r"^(?P<id>\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})v(?P<version>\d+)$"
+    r"^(?P<id>\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Za-z-]{2,})?/\d{7})v(?P<version>\d+)$"
 )
 REPORT_FIELDS = ("report", "weaknesses", "requested_changes")
 
@@ -246,20 +248,27 @@ def fetch_all(cache_dir: Path, delay: float, session: requests.Session) -> int:
         time.sleep(delay)
 
 
+def deduplicate(rows: Iterable[dict]) -> list[dict]:
+    """Drop repeated identifiers.
+
+    Offset pagination spans 45 requests, so a submission added mid-enumeration
+    shifts later pages and can repeat a record.
+    """
+    seen, unique = set(), []
+    for row in rows:
+        identifier = row.get("identifier")
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        unique.append(row)
+    return unique
+
+
 def load_cache(cache_dir: Path) -> list[dict]:
     rows: list[dict] = []
     for path in sorted(cache_dir.glob("submissions_*.json")):
         rows += json.loads(path.read_text(encoding="utf-8")).get("results", [])
-    return rows
-
-
-def write_jsonl(path: Path, records: Iterable[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-    temporary.replace(path)
+    return deduplicate(rows)
 
 
 def main() -> None:

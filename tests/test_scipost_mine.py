@@ -274,3 +274,20 @@ def test_notation_is_not_read_as_an_equation_reference(text):
 def test_a_genuine_bare_reference_is_still_parsed():
     assert mine.cited_locations("I do not understand the first equality in (8).") == [
         {"kind": "equation", "number": "8"}]
+
+
+def test_a_lowercase_subject_class_identifier_is_recognised():
+    assert mine.arxiv_reference("cond-mat.stat-mech/9901001v2") == (
+        "cond-mat.stat-mech/9901001", 2)
+
+
+def test_the_cache_is_deduplicated_by_identifier():
+    # Offset pagination over 45 requests can repeat a record if a submission is
+    # added mid-enumeration.
+    page = {"results": [
+        {"identifier": "2401.00001v1", "title": "A"},
+        {"identifier": "2401.00001v1", "title": "A"},
+        {"identifier": "2401.00002v1", "title": "B"},
+    ]}
+    assert [r["identifier"] for r in mine.deduplicate(page["results"])] == [
+        "2401.00001v1", "2401.00002v1"]

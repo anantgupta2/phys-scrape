@@ -4,23 +4,8 @@
 {"arxiv_id": "2407.17350", "reason": "revisions are not the same document: 2d-duality.tex vs 2d-duality.tex"}
 {"arxiv_id": "2404.01935", "reason": "revisions are not the same document: Un_globalsym.tex vs sections/sec4.tex"}
 {"arxiv_id": "2403.09161", "reason": "no retained source for v2 in data/scipost_sources/2403.09161"}
-{"arxiv_id": "2401.04540", "reason": "no retained source for v1 in data/scipost_sources/2401.04540"}
-{"arxiv_id": "2307.12784", "reason": "no retained source for v2 in data/scipost_sources/2307.12784"}
 {"arxiv_id": "2106.07792", "reason": "revisions are not the same document: draft_anisotropic_v3.tex vs draft_anisotropic_v4.tex"}
-{"arxiv_id": "2304.10432", "reason": "no retained source for v1 in data/scipost_sources/2304.10432"}
-{"arxiv_id": "2303.00026", "reason": "no retained source for v1 in data/scipost_sources/2303.00026"}
-{"arxiv_id": "2212.07185", "reason": "no retained source for v2 in data/scipost_sources/2212.07185"}
-{"arxiv_id": "2205.15330", "reason": "no retained source for v1 in data/scipost_sources/2205.15330"}
-{"arxiv_id": "2301.06065", "reason": "no retained source for v1 in data/scipost_sources/2301.06065"}
-{"arxiv_id": "2212.07185", "reason": "no retained source for v1 in data/scipost_sources/2212.07185"}
-{"arxiv_id": "2210.05464", "reason": "no retained source for v1 in data/scipost_sources/2210.05464"}
-{"arxiv_id": "2207.00599", "reason": "no retained source for v3 in data/scipost_sources/2207.00599"}
-{"arxiv_id": "2209.00029", "reason": "no retained source for v2 in data/scipost_sources/2209.00029"}
-{"arxiv_id": "2208.01226", "reason": "no retained source for v2 in data/scipost_sources/2208.01226"}
-{"arxiv_id": "2105.01655", "reason": "no retained source for v3 in data/scipost_sources/2105.01655"}
-{"arxiv_id": "2204.12262", "reason": "no retained source for v1 in data/scipost_sources/2204.12262"}
-{"arxiv_id": "2112.02114", "reason": "no retained source for v4 in data/scipost_sources/2112.02114"}
-{"arxiv_id": "2202.00689", "reason": "no retained source for v2 in data/scipost_sources/2202.00689"}
+{"arxiv_id": "2202.00689", "reason": "no retained source for v3 in data/scipost_sources/2202.00689"}
 {"arxiv_id": "2112.03327", "reason": "no retained source for v2 in data/scipost_sources/2112.03327"}
 {"arxiv_id": "2112.00138", "reason": "no retained source for v2 in data/scipost_sources/2112.00138"}
 {"arxiv_id": "2202.09375", "reason": "revisions are not the same document: paper.tex vs paper.tex"}
@@ -59,6 +44,7 @@
 {"arxiv_id": "1808.08979", "reason": "no retained source for v2 in data/scipost_sources/1808.08979"}
 {"arxiv_id": "1808.06279", "reason": "no retained source for v2 in data/scipost_sources/1808.06279"}
 {"arxiv_id": "1808.09756", "reason": "no retained source for v1 in data/scipost_sources/1808.09756"}
+{"arxiv_id": "1808.04380", "reason": "no retained source for v2 in data/scipost_sources/1808.04380"}
 {"arxiv_id": "1805.05166", "reason": "no retained source for v2 in data/scipost_sources/1805.05166"}
 {"arxiv_id": "1708.08460", "reason": "no retained source for v2 in data/scipost_sources/1708.08460"}
 {"arxiv_id": "1712.05687", "reason": "no retained source for v2 in data/scipost_sources/1712.05687"}
