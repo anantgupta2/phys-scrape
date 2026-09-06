@@ -81,13 +81,33 @@ LOCATION_PATTERNS = (
 )
 # A bare "(8)" is how referees most often cite an equation.  Three digits at
 # most, so a year such as "(2020)" is not mistaken for a reference.
-BARE_REFERENCE = re.compile(r"\(([1-9]\d{0,2}(?:\.\d+)?)\)")
+BARE_REFERENCE = re.compile(r"(?<![\w}\\])\(([1-9]\d{0,2}(?:\.\d+)?)\)")
 
-SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+# "eq." ends in a period. Splitting there cut real objections in half: one
+# fragment kept the complaint and the other the equation number, so neither
+# qualified, and recorded quotes lost their strongest clause.
+ABBREVIATION = re.compile(
+    r"\b(?:eqs?|figs?|secs?|refs?|apps?|tabs?|chap?|no|vs|cf|al|resp|approx|i\.e|e\.g)\.$",
+    re.I,
+)
+INITIAL = re.compile(r"\b[A-Z]\.$")
 ARXIV_IDENTIFIER = re.compile(
     r"^(?P<id>\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})v(?P<version>\d+)$"
 )
 REPORT_FIELDS = ("report", "weaknesses", "requested_changes")
+
+
+def sentences(text: str) -> list[str]:
+    """Split into sentences without breaking on an abbreviation or initial."""
+    parts: list[str] = []
+    for fragment in _SPLIT.split(text or ""):
+        previous = parts[-1] if parts else ""
+        if parts and (ABBREVIATION.search(previous) or INITIAL.search(previous)):
+            parts[-1] = f"{previous} {fragment}"
+        else:
+            parts.append(fragment)
+    return [p for p in (" ".join(part.split()) for part in parts) if p]
 
 
 def is_theory(submission: dict) -> bool:
@@ -129,9 +149,8 @@ def objections(text: str) -> list[dict]:
     exact quote to record as evidence.
     """
     results = []
-    for sentence in SENTENCE.split(text or ""):
-        sentence = " ".join(sentence.split())
-        if not sentence or PROSE.search(sentence) or not OBJECTION.search(sentence):
+    for sentence in sentences(text):
+        if PROSE.search(sentence) or not OBJECTION.search(sentence):
             continue
         locations = cited_locations(sentence)
         if locations:
@@ -158,7 +177,7 @@ def report_objections(submission: dict) -> list[dict]:
     for report in submission.get("reports") or ():
         if report.get("status") != "vetted":
             continue
-        text = " ".join(str(report.get(field) or "") for field in REPORT_FIELDS)
+        text = "\n".join(str(report.get(field) or "") for field in REPORT_FIELDS)
         for objection in objections(text):
             found.append(objection | {
                 "report_nr": report.get("report_nr"),

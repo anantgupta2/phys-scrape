@@ -189,3 +189,88 @@ def test_a_bare_single_digit_reference_is_still_parsed():
     assert mine.cited_locations("I do not understand (8).") == [
         {"kind": "equation", "number": "8"}
     ]
+
+
+# --- sentence splitting around abbreviations ---------------------------------
+# "eq." ends in a period, so a naive splitter cuts the sentence in half. Real
+# case, report 1 on arXiv:2002.02120v2: the recorded quote began at "(21),
+# presented as the main result", discarding "the paper contains a critical
+# error" -- and "This contradicts Eq. (5)." splits into one fragment with the
+# objection and another with the location, so neither half qualifies.
+
+REAL_TRUNCATED = (
+    "While the motivation is interesting, the paper contains a critical error: "
+    "eq. (21), presented as the main result, does not agree with the standard "
+    "Weinberg soft factor."
+)
+
+
+def test_an_abbreviation_does_not_end_a_sentence():
+    assert mine.sentences("This contradicts Eq. (5).") == ["This contradicts Eq. (5)."]
+
+
+def test_the_real_truncated_objection_stays_whole():
+    found = mine.objections(REAL_TRUNCATED)
+    assert len(found) == 1
+    assert found[0]["quote"].startswith("While the motivation")
+    assert "critical error" in found[0]["quote"]
+
+
+def test_a_lowercase_abbreviation_is_handled():
+    assert mine.sentences("See eq. (12) here.") == ["See eq. (12) here."]
+
+
+def test_genuine_sentence_boundaries_still_split():
+    assert mine.sentences("The first claim holds. The second is wrong.") == [
+        "The first claim holds.", "The second is wrong."]
+
+
+def test_an_abbreviation_does_not_swallow_the_following_sentence():
+    assert mine.sentences("See Fig. 3. The result is wrong.") == [
+        "See Fig. 3.", "The result is wrong."]
+
+
+def test_an_author_initial_does_not_end_a_sentence():
+    assert mine.sentences("As shown by J. Smith the bound fails.") == [
+        "As shown by J. Smith the bound fails."]
+
+
+# --- report fields must not be welded into one sentence ----------------------
+# 2,033 field boundaries in the corpus lack terminal punctuation, which fused
+# the tail of one field to the head of the next and fabricated 13 quotes --
+# including one that read a bibliography entry as "equation 247".
+
+def test_fields_lacking_terminal_punctuation_do_not_fuse():
+    submission = {
+        "acad_field": "Physics", "specialties": ["Quantum Physics"],
+        "identifier": "2401.00001v1", "url": "/submissions/2401.00001v1/",
+        "thread_hash": "t", "reports": [{
+            "status": "vetted", "report_nr": 1, "url": "/x", "doi_string": "10.21468/x",
+            "validity": "ok",
+            "weaknesses": "no weaknesses",                       # no terminal stop
+            "requested_changes": "Page 7, Eq (28) should be corrected.",
+            "report": "",
+        }],
+    }
+    quotes = [o["quote"] for o in mine.report_objections(submission)]
+    assert not any(q.startswith("no weaknesses") for q in quotes)
+
+
+# --- notation is not a citation ----------------------------------------------
+# 33 recorded locations came from gauge groups and function calls: SO(6),
+# U(1), sqrt(2). A reference is preceded by whitespace or punctuation, never
+# glued to a letter, brace or backslash.
+
+@pytest.mark.parametrize("text", [
+    "I find the description of the various SO(6) representations confusing",
+    r"the $U(1)_{3/2}$ index should be corrected",
+    r"$p' \in H^3(\mathbb{Z}_2,U(1)$ should be different",
+    "this is off by a factor of sqrt(2) throughout",
+])
+def test_notation_is_not_read_as_an_equation_reference(text):
+    assert mine.cited_locations(text) == []
+
+
+def test_a_genuine_bare_reference_is_still_parsed():
+    assert mine.cited_locations("I do not understand the first equality in (8).") == [
+        {"kind": "equation", "number": "8"}]
