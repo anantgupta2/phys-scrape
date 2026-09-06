@@ -180,16 +180,28 @@ For each qualifying (submission, report, cited-location) triple:
 4. Retain hunks whose before-or-after text contains a numbered mathematical
    environment (`equation`, `align`, `gather`, `multline`, `eqnarray`, each
    without a starred form) or a theorem-like environment.
-5. Choose an anchor:
-   - Exactly one retained hunk: that is the anchor.
-     `location_confidence = "corroborated_unique"`.
-   - Several retained hunks: count numbered math environments preceding each
-     hunk in the v-before source to obtain an approximate ordinal, and select
-     the hunk whose ordinal is within +/-2 of the cited equation number.
-     `location_confidence = "corroborated_ordinal"`.
-   - No retained hunk, or no ordinal within tolerance: no anchor.
-     `location_confidence = "unresolved"`, and every retained hunk is attached
-     as a candidate.
+5. Choose an anchor, and record how well it is evidenced.
+
+| Confidence | Meaning | Served? |
+| --- | --- | :-: |
+| `corroborated_symbol` | A symbol the referee quoted appears in the excerpt | yes |
+| `corroborated_author_marked` | The authors tagged the change (`\changed`) | yes |
+| `corroborated_unique` | Only one equation changed, within tolerance | yes |
+| `corroborated_exact` | Ordinal matches the cited number exactly | yes |
+| `corroborated_near` | Closest changed equation is 1-3 ordinals away | no |
+| `contradicted_symbols` | A quoted symbol is absent from the excerpt | no |
+| `unresolved` | No changed equation is comparable to the citation | no |
+
+Numbers are matched two ways, because papers print both: a dotted citation
+such as "(3.26)" against a section-qualified label, only within the cited
+section; a plain one against the document ordinal.
+
+Symbols outrank ordinals. Referees frequently quote the offending expression
+verbatim -- "it should read $j(-h)^{*}$ instead of $J(-h)^{*}$" -- and on real
+cards this confirmed 5 anchors and contradicted 3 that ordinal matching had
+accepted. Matching uses subscripted compounds in preference to bare macros and
+ignores formatting macros: an early version treated `\rm` as a symbol, and it
+appears in nearly every excerpt.
 
 Before any ordinal reasoning, a hunk whose after-text carries an author
 revision macro (`\changed`, `\revised`, `\added`) wins outright. Authors who
@@ -197,10 +209,12 @@ tag their own revisions have already localized the fix; 20 of the 74 changed
 hunks on arXiv:2207.00854 were tagged this way.
 
 The approximate ordinal count is a tie-breaker with a tolerance window, not an
-emulation of LaTeX numbering. It may only raise confidence or select among
-existing candidates; it never excludes a card. Tolerance is 3: the fracton
-case sat exactly two ordinals from the referee's cited number, too close to a
-tolerance of 2 to depend on.
+emulation of LaTeX numbering. Tolerance is 3: the fracton case sat exactly two
+ordinals from the referee's cited number, too close to a tolerance of 2 to
+depend on. But only an exact match is served. Measured over 37 real anchored
+cards, 20 matched exactly and 17 sat one to three away, and a spot-checked
+distance-3 case pointed at a charge table while the referee was objecting to a
+superpotential.
 
 Measured on arXiv:2207.00854 v2->v3, this reduces 74 changed hunks to 6
 containing numbered equations, one of which holds the referee's target.
@@ -222,6 +236,19 @@ markup, no v-after content, and no referee text.
 Two files, joined on `card_id`. One card is emitted per distinct cited
 location, so every card has exactly one answer.
 
+Output is three files, not two. A card whose anchor is not evidenced still has
+an excerpt, but that excerpt is a guess and may not contain the error at all;
+serving it would ask a question the excerpt cannot answer and score a model
+wrong for our imprecision. Those go to a reviewer, with their referee quote
+and candidate hunks and no model-facing excerpt:
+
+    data/error_cards.jsonl              anchored; the only model-facing file
+    data/error_cards_gold.jsonl         gold evidence for the above
+    data/error_cards_unresolved.jsonl   human localization queue
+
+Nothing is discarded. A referee can be right about a paper whose authors
+rebutted them.
+
 `data/error_cards.jsonl` — the only file that may be shown to an evaluated
 model:
 
@@ -229,7 +256,6 @@ model:
       "card_id": "2208.00606v1-eq20",
       "arxiv_id": "2208.00606",
       "version": 1,
-      "main_tex": "paper.tex",
       "excerpt_lines": [104, 131],
       "excerpt": "<v-before LaTeX>",
       "task": "Identify any incorrect claim in this excerpt and explain why."
@@ -244,8 +270,10 @@ model:
       "report_doi": "10.21468/SciPost.Report.13826",
       "referee_quote": "(20): The first equation is wrong: ...",
       "referee_validity_rating": "ok",
-      "cited_location": {"kind": "equation", "number": 20},
-      "location_confidence": "corroborated_unique",
+      "cited_location": {"kind": "equation", "number": "20"},
+      "supporting_quotes": [],
+      "main_tex": "paper.tex",
+      "location_confidence": "corroborated_symbol",
       "candidate_hunks": [],
       "v_before": 1,
       "v_after": 2,

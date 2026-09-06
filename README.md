@@ -62,6 +62,12 @@ that may be shown to an evaluated model. `error_cards_gold.jsonl` holds the
 referee quote, DOI, later version and diff. A test asserts nothing leaks
 across.
 
+A third file, `error_cards_unresolved.jsonl`, holds cards whose excerpt could
+not be anchored to the equation the referee cited. They carry the quote and
+the candidate hunks but no excerpt, and go to a reviewer rather than to a
+model: an unanchored excerpt may not contain the error, and scoring a model
+against it would measure our localization, not the model.
+
 Severity is never assigned automatically: every card ships
 `human_severity_label: unreviewed`. A referee saying "wrong" routes a paper to
 an expert; it does not certify that the flaw is fatal.
