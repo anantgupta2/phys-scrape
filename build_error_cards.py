@@ -49,7 +49,19 @@ AUTHOR_MARKED = re.compile(r"\\changed\b|\\revised\b|\\added\b")
 # Confidence levels whose excerpt is trustworthy enough to serve as a question.
 # "corroborated_near" and "unresolved" are reviewed by a human instead.
 SERVEABLE = frozenset({
-    "corroborated_author_marked", "corroborated_unique", "corroborated_exact",
+    "corroborated_symbol", "corroborated_author_marked",
+    "corroborated_unique", "corroborated_exact",
+})
+
+INLINE_MATH = re.compile(r"\$([^$]{2,80})\$")
+# A subscripted compound such as v_{\rm wrong} identifies a quantity; a bare
+# macro is weaker, and a formatting macro identifies nothing at all.
+COMPOUND = re.compile(r"(?:\\[A-Za-z]+|[A-Za-z])_\{[^{}]{1,40}\}|(?:\\[A-Za-z]+|[A-Za-z])_[A-Za-z0-9]")
+BARE_MACRO = re.compile(r"\\[A-Za-z]{2,}")
+FORMATTING = frozenset({
+    r"\rm", r"\mathrm", r"\text", r"\textrm", r"\mathcal", r"\mathbb", r"\mathbf",
+    r"\left", r"\right", r"\frac", r"\begin", r"\end", r"\quad", r"\qquad",
+    r"\big", r"\Big", r"\displaystyle", r"\nonumber", r"\label", r"\hspace",
 })
 
 TASK = (
@@ -207,6 +219,14 @@ def build(candidate: dict, old: list[str], new: list[str],
             if source is None:
                 continue
             start, end, text = excerpt(old, source)
+            # Symbols the referee typed outrank any ordinal reasoning: their
+            # presence confirms the anchor, their absence contradicts it.
+            if anchor is not None:
+                agreement = symbol_agreement(primary["quote"], text)
+                if agreement is True:
+                    confidence = "corroborated_symbol"
+                elif agreement is False:
+                    confidence = "contradicted_symbols"
             card_id = f"{candidate['scipost_identifier']}-{kind}{number}"
             built.append((
                 {
@@ -241,6 +261,32 @@ def build(candidate: dict, old: list[str], new: list[str],
                 },
             ))
     return built
+
+
+def quoted_symbols(quote: str) -> set[str]:
+    """LaTeX symbols the referee typed inside inline math.
+
+    Referees frequently quote the offending expression verbatim.  Only a
+    minority of quotes carry symbols, but when they do they are far better
+    evidence than an ordinal count.
+    """
+    found: set[str] = set()
+    for fragment in INLINE_MATH.findall(quote or ""):
+        found.update(COMPOUND.findall(fragment))
+        found.update(m for m in BARE_MACRO.findall(fragment) if m not in FORMATTING)
+    return found
+
+
+def symbol_agreement(quote: str, excerpt_text: str) -> bool | None:
+    """True/False if the referee's symbols do/do not appear; None if untestable."""
+    symbols = quoted_symbols(quote)
+    if not symbols:
+        return None
+    # A subscripted compound names a specific quantity; fall back to bare
+    # macros only when the referee quoted none, since a lone \alpha is common
+    # enough to confirm almost any excerpt.
+    compounds = {symbol for symbol in symbols if "_" in symbol}
+    return any(symbol in excerpt_text for symbol in (compounds or symbols))
 
 
 def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[dict]]:

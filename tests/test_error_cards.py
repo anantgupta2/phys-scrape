@@ -365,3 +365,40 @@ def test_exact_anchors_reach_the_benchmark_set():
     assert len(model) == 1 and unresolved == []
     assert gold[0]["location_confidence"] in {
         "corroborated_unique", "corroborated_exact", "corroborated_author_marked"}
+
+
+# --- symbols quoted by the referee -------------------------------------------
+# Referees often quote the offending expression: "should read $j(-h)^{*}$
+# instead of $J(-h)^{*}$". Only about a quarter of quotes carry usable symbols,
+# but where they do they are stronger evidence than any ordinal count -- on
+# real data they confirmed 5 anchors and contradicted 3 that ordinals accepted.
+
+def test_symbols_are_extracted_from_inline_math():
+    found = cards.quoted_symbols(r"should read $\alpha_{\ell}$ instead of $\beta_{k}$")
+    assert r"\alpha" in found and r"\beta" in found
+
+
+def test_prose_without_math_yields_no_symbols():
+    assert cards.quoted_symbols("(21) is incorrect and must be corrected.") == set()
+
+
+def test_a_quoted_symbol_present_in_the_excerpt_confirms_the_anchor():
+    candidate = json.loads(json.dumps(CANDIDATE))
+    candidate["objections"][0]["quote"] = r"(3) is wrong: $v_{\rm wrong}$ cannot appear here."
+    (_, gold), = cards.build(candidate, V_BEFORE, V_AFTER)
+    assert gold["location_confidence"] == "corroborated_symbol"
+
+
+def test_a_quoted_symbol_absent_from_the_excerpt_contradicts_the_anchor():
+    candidate = json.loads(json.dumps(CANDIDATE))
+    candidate["objections"][0]["quote"] = r"(3) is wrong: $\Xi_{\rm nowhere}$ is misdefined."
+    (_, gold), = cards.build(candidate, V_BEFORE, V_AFTER)
+    assert gold["location_confidence"] == "contradicted_symbols"
+
+
+def test_a_contradicted_anchor_is_not_served():
+    candidate = json.loads(json.dumps(CANDIDATE))
+    candidate["objections"][0]["quote"] = r"(3) is wrong: $\Xi_{\rm nowhere}$ is misdefined."
+    model, gold, unresolved = cards.route(cards.build(candidate, V_BEFORE, V_AFTER))
+    assert model == [] and gold == []
+    assert unresolved[0]["location_confidence"] == "contradicted_symbols"
