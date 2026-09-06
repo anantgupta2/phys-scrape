@@ -5,3 +5,4 @@ __pycache__/
 *.part
 *.tmp
 data/scipost_api_cache/
+data/scipost_sources/
