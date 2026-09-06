@@ -80,29 +80,77 @@ class Hunk:
     after_lines: tuple[int, int]
 
 
+COMMENT = re.compile(r"(?<!\\)%.*$")
+ROW_BREAK = "\\\\"
+UNNUMBERED_ROW = re.compile(r"\\nonumber|\\notag")
+NESTING = re.compile(r"\\(begin|end)\{")
+
+
+def strip_comment(line: str) -> str:
+    return COMMENT.sub("", line)
+
+
 def numbered_environments(lines: list[str]) -> list[int]:
     """Line indices where a numbered math environment opens."""
-    return [i for i, line in enumerate(lines) if NUMBERED_BEGIN.search(line)]
+    return [i for i, line in enumerate(lines) if NUMBERED_BEGIN.search(strip_comment(line))]
 
 
-def environment_spans(lines: list[str]) -> list[tuple[int, int, int, str]]:
-    """(start, end, ordinal, label) for each numbered environment, in order.
+def numbered_rows(body: list[str]) -> int:
+    """How many numbers a multi-row environment prints.
 
-    `label` is the section-qualified number a paper using
-    \numberwithin{equation}{section} would print, e.g. "3.26" for the 26th
-    equation of section 3.  Referees cite whichever form the paper displays,
-    so both are kept.
+    Rows are separated by \\ at the environment's own level; nested arrays and
+    matrices use the same separator, so those are skipped, and \nonumber or
+    \notag suppresses a row's number.
     """
-    starts = set(numbered_environments(lines))
-    spans, ordinal, section, in_section = [], 0, 0, 0
-    for index, line in enumerate(lines):
-        if SECTION.search(line):
-            section, in_section = section + 1, 0
-        if index not in starts:
+    depth = rows = 0
+    suppressed = 0
+    for line in body:
+        text = strip_comment(line)
+        if depth <= 0:
+            rows += text.count(ROW_BREAK)
+            suppressed += len(UNNUMBERED_ROW.findall(text))
+        for match in NESTING.finditer(text):
+            depth += 1 if match[1] == "begin" else -1
+    return max(1, rows + 1 - suppressed)
+
+
+@dataclass(frozen=True)
+class Span:
+    """A numbered environment and the range of numbers it prints."""
+    start: int
+    end: int
+    first_ordinal: int
+    last_ordinal: int
+    section: int
+    first_index: int
+    last_index: int
+
+
+def environment_spans(lines: list[str]) -> list[Span]:
+    """Every numbered environment, with the numbers LaTeX would print for it.
+
+    Both forms are tracked because papers print both: a document ordinal, and
+    a section-qualified index for papers using \numberwithin{equation}{section}.
+    """
+    spans: list[Span] = []
+    ordinal = section = index = 0
+    position = 0
+    while position < len(lines):
+        text = strip_comment(lines[position])
+        if SECTION.search(text):
+            section, index = section + 1, 0
+        if not NUMBERED_BEGIN.search(text):
+            position += 1
             continue
-        ordinal, in_section = ordinal + 1, in_section + 1
-        end = next((j for j in range(index, len(lines)) if ANY_END.search(lines[j])), index)
-        spans.append((index, end, ordinal, f"{section}.{in_section}"))
+        end = next((j for j in range(position, len(lines))
+                    if ANY_END.search(strip_comment(lines[j]))), position)
+        simple = NUMBERED_BEGIN.search(text)[1] == "equation"
+        rows = 1 if simple else numbered_rows(lines[position + 1:end])
+        spans.append(Span(position, end, ordinal + 1, ordinal + rows,
+                          section, index + 1, index + rows))
+        ordinal += rows
+        index += rows
+        position = end + 1
     return spans
 
 
@@ -112,32 +160,36 @@ def changed_hunks(old: list[str], new: list[str]) -> list[Hunk]:
             for tag, i1, i2, j1, j2 in matcher.get_opcodes() if tag != "equal"]
 
 
-def hunk_span(hunk: Hunk, spans: Iterable[tuple[int, int, int, str]]):
+def hunk_span(hunk: Hunk, spans: Iterable[Span]) -> Span | None:
     """The numbered environment a hunk falls inside, if any."""
     start, end = hunk.before_lines
     for span in spans:
-        span_start, span_end = span[0], span[1]
-        if start <= span_end and max(start, span_start) <= min(max(end - 1, start), span_end):
+        if start <= span.end and max(start, span.start) <= min(max(end - 1, start), span.end):
             return span
     return None
 
 
-def citation_distance(span, cited: str) -> int | None:
+def citation_distance(span: Span, cited: str) -> int | None:
     """How far a numbered environment sits from a referee's citation.
 
-    A dotted citation is matched against the section-qualified label and only
-    within the same section; a plain one against the document ordinal.
+    A dotted citation is matched against the section-qualified index and only
+    within the same section; a plain one against the document ordinal. A
+    multi-row environment covers a range, so any row in it is an exact match.
     None means the two are not comparable, which is not evidence either way.
     """
-    _, _, ordinal, label = span
     try:
         if "." in cited:
             section, _, index = cited.partition(".")
-            label_section, _, label_index = label.partition(".")
-            return abs(int(index) - int(label_index)) if section == label_section else None
-        return abs(ordinal - int(cited))
+            if int(section) != span.section:
+                return None
+            low, high, wanted = span.first_index, span.last_index, int(index)
+        else:
+            low, high, wanted = span.first_ordinal, span.last_ordinal, int(cited)
     except ValueError:
         return None
+    if low <= wanted <= high:
+        return 0
+    return min(abs(wanted - low), abs(wanted - high))
 
 
 def equation_hunks(hunks: list[Hunk], old: list[str], new: list[str]) -> list[Hunk]:
@@ -186,9 +238,9 @@ def excerpt(lines: list[str], hunk: Hunk) -> tuple[int, int, str]:
     start, end = hunk.before_lines
     start = max(0, start - CONTEXT_LINES)
     end = min(len(lines), max(end, start + 1) + CONTEXT_LINES)
-    for span_start, span_end, _, _ in environment_spans(lines):
-        if span_start < end and span_end >= start:
-            start, end = min(start, span_start), max(end, span_end + 1)
+    for span in environment_spans(lines):
+        if span.start < end and span.end >= start:
+            start, end = min(start, span.start), max(end, span.end + 1)
     if end - start > MAX_EXCERPT_LINES:
         end = start + MAX_EXCERPT_LINES
     return start + 1, end, "\n".join(lines[start:end])

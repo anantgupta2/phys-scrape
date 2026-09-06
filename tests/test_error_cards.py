@@ -226,8 +226,8 @@ SECTIONED = tex(
 
 
 def test_environments_carry_a_section_qualified_label():
-    labels = [(start, label) for start, _, _, label in cards.environment_spans(SECTIONED)]
-    assert labels == [(1, "1.1"), (5, "2.1"), (8, "2.2"), (11, "2.3")]
+    labels = [(s.start, s.section, s.first_index) for s in cards.environment_spans(SECTIONED)]
+    assert labels == [(1, 1, 1), (5, 2, 1), (8, 2, 2), (11, 2, 3)]
 
 
 def test_a_dotted_citation_resolves_against_section_numbering():
@@ -617,3 +617,65 @@ def test_unrelated_files_are_not_one_document():
 def test_a_heavily_revised_but_related_document_still_counts():
     revised = list(V_BEFORE) + ["new discussion line %d" % i for i in range(8)]
     assert cards.same_document(V_BEFORE, revised)
+
+
+# --- ordinal counting must match what LaTeX prints ---------------------------
+# Measured over 200 real papers: 341 of 13,961 environments are commented out
+# (over-count), and 1,484 multi-row environments contribute 2,934 extra
+# numbered rows (under-count, ~21%). Both corrupt the exact-match anchor.
+
+COMMENTED = tex(
+    r"\section{S}",
+    r"% \begin{equation}",
+    r"%   discarded = 0",
+    r"% \end{equation}",
+    r"\begin{equation}", r"a = 1", r"\end{equation}",       # prints as (1)
+)
+ALIGNED = tex(
+    r"\section{S}",
+    r"\begin{align}",
+    r"a &= 1 \\",                                            # (1)
+    r"b &= 2 \\",                                            # (2)
+    r"c &= 3",                                               # (3)
+    r"\end{align}",
+    r"\begin{equation}", r"d = 4", r"\end{equation}",        # (4)
+)
+SUPPRESSED = tex(
+    r"\section{S}",
+    r"\begin{align}",
+    r"a &= 1 \nonumber \\",
+    r"b &= 2",                                               # (1)
+    r"\end{align}",
+    r"\begin{equation}", r"e = 5", r"\end{equation}",        # (2)
+)
+
+
+def test_a_commented_out_environment_is_not_numbered():
+    spans = cards.environment_spans(COMMENTED)
+    assert [s.first_ordinal for s in spans] == [1]
+
+
+def test_each_row_of_an_align_takes_a_number():
+    spans = cards.environment_spans(ALIGNED)
+    assert (spans[0].first_ordinal, spans[0].last_ordinal) == (1, 3)
+    assert spans[1].first_ordinal == 4
+
+
+def test_nonumber_rows_do_not_take_a_number():
+    spans = cards.environment_spans(SUPPRESSED)
+    assert spans[0].last_ordinal == 1
+    assert spans[1].first_ordinal == 2
+
+
+def test_a_citation_to_any_row_of_an_align_matches_that_environment():
+    span = cards.environment_spans(ALIGNED)[0]
+    assert cards.citation_distance(span, "1") == 0
+    assert cards.citation_distance(span, "2") == 0
+    assert cards.citation_distance(span, "3") == 0
+    assert cards.citation_distance(span, "5") == 2
+
+
+def test_section_labels_span_the_rows_of_an_align():
+    span = cards.environment_spans(ALIGNED)[0]
+    assert cards.citation_distance(span, "1.2") == 0
+    assert cards.citation_distance(span, "2.2") is None      # wrong section
