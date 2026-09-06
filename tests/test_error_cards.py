@@ -597,3 +597,23 @@ def test_no_model_card_contains_the_after_version_text():
         for model, _ in cards.build(candidate, V_BEFORE, V_AFTER):
             if model is not None:
                 assert "v_{\\rm fixed}" not in model["excerpt"]
+
+
+# --- same document, different filename ---------------------------------------
+# Authors routinely rename the main file per revision (GaussinA_mainv2.tex ->
+# GaussinA_mainv3.tex), so a filename test rejected 178 of 451 usable pairs.
+# The hazard is main_tex's largest-file fallback picking genuinely different
+# files, which shows up as content dissimilarity, not as a different name.
+
+def test_a_renamed_but_unchanged_document_is_still_one_document():
+    assert cards.same_document(V_BEFORE, V_AFTER)
+
+
+def test_unrelated_files_are_not_one_document():
+    other = ["totally different content"] * 40 + [r"\begin{equation}", "z = 9", r"\end{equation}"]
+    assert not cards.same_document(V_BEFORE, other)
+
+
+def test_a_heavily_revised_but_related_document_still_counts():
+    revised = list(V_BEFORE) + ["new discussion line %d" % i for i in range(8)]
+    assert cards.same_document(V_BEFORE, revised)

@@ -340,6 +340,23 @@ def symbol_agreement(quote: str, excerpt_text: str) -> bool | None:
     return any(normalize_symbol(symbol) in haystack for symbol in compounds)
 
 
+# Below this, the two revisions are not recognizably the same document.
+# Measured over 59 real renamed pairs the median similarity is 0.92, and the
+# three genuinely mismatched pairs sat at 0.14-0.21.
+SAME_DOCUMENT_RATIO = 0.5
+
+
+def same_document(old: list[str], new: list[str]) -> bool:
+    """Whether two revisions are the same document.
+
+    main_tex falls back to the largest .tex when no toplevel is declared, so
+    the two revisions can resolve to different files and the diff would be
+    noise presented as a localized change.  The filename is not the test:
+    authors rename the main file per revision routinely.
+    """
+    return difflib.SequenceMatcher(a=old, b=new, autojunk=False).quick_ratio() >= SAME_DOCUMENT_RATIO
+
+
 def route(built: list[tuple[dict, dict]]) -> tuple[list[dict], list[dict], list[dict]]:
     """Split cards into the model-facing set and the human localization queue.
 
@@ -390,12 +407,9 @@ def main() -> None:
         except (OSError, tarfile.TarError, ValueError) as exc:
             skipped.append({"arxiv_id": row["arxiv_id"], "reason": str(exc)})
             continue
-        if before_name != after_name:
-            # main_tex falls back to the largest .tex when no toplevel is
-            # declared, so the two revisions can resolve to different files and
-            # the diff would be noise presented as a localized change.
+        if not same_document(old, new):
             skipped.append({"arxiv_id": row["arxiv_id"],
-                            "reason": f"main TeX differs between revisions: "
+                            "reason": f"revisions are not the same document: "
                                       f"{before_name} vs {after_name}"})
             continue
         model_part, gold_part, unresolved_part = route(
