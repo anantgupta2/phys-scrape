@@ -321,3 +321,27 @@ def test_a_corrective_request_about_prose_is_still_rejected():
 
 def test_a_plain_statement_citing_an_equation_is_not_a_candidate():
     assert mine.objections("The derivation of eq. (7) follows Ref. [3].") == []
+
+
+# --- fetch manifest ----------------------------------------------------------
+# Regenerating the arXiv sources needs the version pair each review round
+# names, which is not v1/v2 for 59% of rounds.
+
+def test_fetch_manifest_names_the_version_pair_of_each_round():
+    candidates = [
+        {"arxiv_id": "2207.00854", "v_before": 2, "v_after": 3},
+        {"arxiv_id": "2412.01149", "v_before": 2, "v_after": 3},
+    ]
+    assert mine.fetch_manifest(candidates) == [
+        {"arxiv_id": "2207.00854", "source_versions": [2, 3]},
+        {"arxiv_id": "2412.01149", "source_versions": [2, 3]},
+    ]
+
+
+def test_fetch_manifest_deduplicates_repeated_rounds():
+    candidates = [
+        {"arxiv_id": "2002.02120", "v_before": 2, "v_after": 3},
+        {"arxiv_id": "2002.02120", "v_before": 2, "v_after": 3},
+        {"arxiv_id": "2002.02120", "v_before": 3, "v_after": 4},
+    ]
+    assert len(mine.fetch_manifest(candidates)) == 2

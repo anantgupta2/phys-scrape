@@ -39,6 +39,9 @@ from jsonl_io import write_jsonl
 
 CONTEXT_LINES = 10
 MAX_EXCERPT_LINES = 400
+# Enough to read a changed equation, short of pasting whole sections.
+MAX_HUNK_TEXT_LINES = 12
+MAX_CANDIDATE_HUNKS = 8
 # The fracton case (arXiv:2207.00854) sat exactly two ordinals from the
 # referee's number, so the window is a little wider than that.
 ORDINAL_TOLERANCE = 3
@@ -267,9 +270,24 @@ def _span_record(start: int, end: int) -> list[int]:
     return [] if end <= start else [start + 1, end]
 
 
-def _hunk_record(hunk: Hunk) -> dict:
+def _span_text(lines: list[str], start: int, end: int) -> str:
+    """The changed lines themselves, truncated.
+
+    Line numbers alone are unusable: a reviewer working the queue would have
+    to re-download the sources to see what the referee is pointing at.
+    """
+    body = lines[start:end]
+    if len(body) <= MAX_HUNK_TEXT_LINES:
+        return "\n".join(body)
+    elided = len(body) - MAX_HUNK_TEXT_LINES
+    return "\n".join(body[:MAX_HUNK_TEXT_LINES] + [f"... {elided} more lines"])
+
+
+def _hunk_record(hunk: Hunk, old: list[str], new: list[str]) -> dict:
     return {"before_lines": _span_record(*hunk.before_lines),
-            "after_lines": _span_record(*hunk.after_lines)}
+            "after_lines": _span_record(*hunk.after_lines),
+            "before_text": _span_text(old, *hunk.before_lines),
+            "after_text": _span_text(new, *hunk.after_lines)}
 
 
 def build(candidate: dict, old: list[str], new: list[str],
@@ -322,7 +340,7 @@ def build(candidate: dict, old: list[str], new: list[str],
                 "location_confidence": "unsupported_location_kind",
                 "anchor_marked": False,
                 "anchor_hunk": None,
-                "candidate_hunks": [_hunk_record(h) for h in fallback[:12]],
+                "candidate_hunks": [_hunk_record(h, old, new) for h in fallback[:MAX_CANDIDATE_HUNKS]],
             }))
             continue
 
@@ -362,10 +380,11 @@ def build(candidate: dict, old: list[str], new: list[str],
                 "location_confidence": confidence,
                 "anchor_marked": bool(anchor) and revision_markup(
                     "\n".join(new[slice(*anchor.after_lines)])),
-                "anchor_hunk": _hunk_record(anchor) if anchor else None,
+                "anchor_hunk": _hunk_record(anchor, old, new) if anchor else None,
                 # A reviewer needs the alternatives, which is the whole point
                 # when the chosen anchor was rejected.
-                "candidate_hunks": [] if served else [_hunk_record(h) for h in fallback[:12]],
+                "candidate_hunks": [] if served else [_hunk_record(h, old, new)
+                                     for h in fallback[:MAX_CANDIDATE_HUNKS]],
             },
         ))
     return built

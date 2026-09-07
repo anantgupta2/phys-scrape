@@ -26,7 +26,7 @@ from typing import Iterable
 
 import requests
 
-from jsonl_io import write_jsonl
+from jsonl_io import read_jsonl, write_jsonl
 
 
 API = "https://scipost.org/api/submissions/"
@@ -292,6 +292,24 @@ def load_cache(cache_dir: Path) -> list[dict]:
     return deduplicate(rows)
 
 
+def fetch_manifest(candidates: Iterable[dict]) -> list[dict]:
+    """Rows for collect_arxiv_candidates.py fetch-sources.
+
+    Each names the version pair its review round actually used; 59% of rounds
+    are not v1 -> v2, and fetching v1/v2 there retrieves two revisions the
+    referees never discussed.
+    """
+    seen, rows = set(), []
+    for candidate in candidates:
+        key = (candidate["arxiv_id"], candidate["v_before"], candidate["v_after"])
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"arxiv_id": candidate["arxiv_id"],
+                     "source_versions": [candidate["v_before"], candidate["v_after"]]})
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -301,7 +319,17 @@ def main() -> None:
     s = sub.add_parser("select", help="apply the selection rules to the cache")
     s.add_argument("--cache-dir", type=Path, required=True)
     s.add_argument("--output", type=Path, required=True)
+    m = sub.add_parser("fetch-manifest",
+                       help="list the arXiv version pairs the review rounds name")
+    m.add_argument("--candidates", type=Path, required=True)
+    m.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+
+    if args.command == "fetch-manifest":
+        rows = fetch_manifest(read_jsonl(args.candidates))
+        write_jsonl(args.output, rows)
+        print(f"{len(rows)} source pairs to fetch -> {args.output}")
+        return
 
     if args.command == "enumerate":
         pages = fetch_all(args.cache_dir, args.delay, requests.Session())

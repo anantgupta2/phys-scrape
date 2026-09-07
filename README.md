@@ -38,14 +38,20 @@ DOI and a cited location.
 python scipost_mine.py enumerate --cache-dir data/scipost_api_cache   # ~6 min, run once
 python scipost_mine.py select --cache-dir data/scipost_api_cache \
     --output data/scipost_candidates.jsonl
-python -c "import json,sys;[sys.stdout.write(json.dumps({'arxiv_id':r['arxiv_id'],\
-    'source_versions':[r['v_before'],r['v_after']]})+chr(10)) \
-    for r in map(json.loads,open('data/scipost_candidates.jsonl'))]" > /tmp/fetch.jsonl
-python collect_arxiv_candidates.py fetch-sources --input /tmp/fetch.jsonl \
+python scipost_mine.py fetch-manifest --candidates data/scipost_candidates.jsonl \
+    --output data/fetch_manifest.jsonl
+python collect_arxiv_candidates.py fetch-sources --input data/fetch_manifest.jsonl \
     --output data/scipost_sources_status.jsonl --source-dir data/scipost_sources
 python build_error_cards.py --candidates data/scipost_candidates.jsonl \
     --source-dir data/scipost_sources --output-dir data
+python rank_cards.py --gold data/error_cards_gold.jsonl \
+    --unresolved data/error_cards_unresolved.jsonl
 ```
+
+The `fetch-sources` step downloads ~1.9 GB of arXiv LaTeX sources and takes a
+few hours at a polite rate. It is gitignored and only needed to *rebuild* the
+cards: the committed card files carry the referee quote, the cited location
+and the changed LaTeX inline, so reading and reviewing them needs no download.
 
 Design and measured results: `docs/superpowers/specs/2026-09-05-scipost-error-card-miner-design.md`.
 

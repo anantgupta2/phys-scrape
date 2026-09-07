@@ -731,3 +731,55 @@ def test_gold_records_carry_the_objection_tier():
 def test_gold_records_record_whether_the_anchor_was_author_marked():
     (_, gold), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
     assert gold["anchor_marked"] is False
+
+
+# --- the review queue must be workable without the sources -------------------
+# Candidate hunks carried line numbers only, so a reviewer opening a queued
+# card saw "look at lines 846-847" with no way to see what was there short of
+# re-downloading 1.9 GB of arXiv tarballs.
+
+def test_candidate_hunks_carry_the_changed_text():
+    stubborn = json.loads(json.dumps(CANDIDATE))
+    stubborn["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "97"}]
+    (_, gold), = cards.build(stubborn, V_BEFORE, V_AFTER)
+    hunk = gold["candidate_hunks"][0]
+    assert "v_{\\rm wrong}" in hunk["before_text"]
+    assert "v_{\\rm fixed}" in hunk["after_text"]
+
+
+def test_an_anchored_gold_record_carries_its_anchor_text():
+    (_, gold), = cards.build(CANDIDATE, V_BEFORE, V_AFTER)
+    assert "v_{\\rm wrong}" in gold["anchor_hunk"]["before_text"]
+
+
+def test_hunk_text_is_truncated_with_a_marker():
+    long_before = [r"\section{S}", r"\begin{equation}"] + \
+                  ["term_%d = 0 \\\\" % i for i in range(60)] + [r"\end{equation}"]
+    long_after = [r"\section{S}", r"\begin{equation}"] + \
+                 ["term_%d = 1 \\\\" % i for i in range(60)] + [r"\end{equation}"]
+    candidate = json.loads(json.dumps(CANDIDATE))
+    candidate["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "1"}]
+    (_, gold), = cards.build(candidate, long_before, long_after)
+    text = gold["anchor_hunk"]["before_text"]
+    assert len(text.splitlines()) <= cards.MAX_HUNK_TEXT_LINES + 1
+    assert text.splitlines()[-1].startswith("...")
+
+
+def test_an_insertion_has_empty_before_text():
+    before = [r"\section{S}", r"\begin{equation}", r"a = 1", r"\end{equation}"]
+    after = [r"\section{S}", r"\begin{equation}", r"a = 1", r"\end{equation}",
+             r"\begin{equation}", r"b = 2", r"\end{equation}"]
+    candidate = json.loads(json.dumps(CANDIDATE))
+    candidate["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "2"}]
+    (_, gold), = cards.build(candidate, before, after)
+    hunk = gold["anchor_hunk"] or gold["candidate_hunks"][0]
+    assert hunk["before_text"] == ""
+    assert "b = 2" in hunk["after_text"]
+
+
+def test_hunk_text_never_reaches_the_model_card():
+    stubborn = json.loads(json.dumps(CANDIDATE))
+    stubborn["objections"][0]["cited_locations"] = [{"kind": "equation", "number": "3"}]
+    (model, gold), = cards.build(stubborn, V_BEFORE, V_AFTER)
+    assert set(model) == {"card_id", "excerpt_lines", "excerpt", "task"}
+    assert "v_{\\rm fixed}" not in json.dumps(model)
