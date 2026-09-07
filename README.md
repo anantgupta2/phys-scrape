@@ -30,12 +30,48 @@ python audit_latex_pairs.py --input data/candidates_sources.jsonl \
 ### 2. SciPost referee reports (current)
 
 Sources ground truth from public peer review: a referee states what is wrong
-and where, and the following revision shows the fix. 8,846 submissions yield
-**462 candidates carrying 793 referee objection quotes**, each with a report
-DOI and a cited location.
+and where, and the following revision shows the fix. 8,844 submissions yield
+**538 candidates carrying 995 referee objection quotes** over 1,128 distinct
+cited locations, each with a report DOI. 237 of those are localized to the
+exact equation; the remaining 891 go to a human queue.
 
 ```bash
-python scipost_mine.py enumerate --cache-dir data/scipost_api_cache   # ~6 min, run once
+./rebuild.sh
+```
+
+That is the whole thing. It creates the virtualenv, installs dependencies,
+queries SciPost, selects candidates, downloads the arXiv sources, builds the
+cards and ranks them. **Safe to interrupt** — re-running resumes rather than
+starting over, and a paper whose sources are already on disk costs no network
+request at all.
+
+| | |
+| --- | --- |
+| First run | a few hours, almost all of it the arXiv download |
+| Later runs | about a minute, if the sources are already there |
+| Disk | ~2.5 GB (1.9 GB sources, 75 MB API cache) |
+| Needs | python3.10+, network. No API keys, no accounts. |
+
+```bash
+./rebuild.sh --no-download   # rebuild cards from sources already on disk
+./rebuild.sh --refresh       # re-query SciPost even if the cache exists
+./rebuild.sh --help
+```
+
+**You do not need to run this to read the results.** Every committed card
+carries the referee's quote, the cited equation and the changed LaTeX inline,
+so the benchmark set and the review queue can both be worked straight from the
+repository. The download is only for rebuilding.
+
+**Counts will not match the committed files**, and that is expected: SciPost
+keeps accepting submissions, so a later run sees papers that did not exist
+when these were built. The rules are fixed; the corpus is not.
+
+<details>
+<summary>Running the stages individually</summary>
+
+```bash
+python scipost_mine.py enumerate --cache-dir data/scipost_api_cache
 python scipost_mine.py select --cache-dir data/scipost_api_cache \
     --output data/scipost_candidates.jsonl
 python scipost_mine.py fetch-manifest --candidates data/scipost_candidates.jsonl \
@@ -47,13 +83,25 @@ python build_error_cards.py --candidates data/scipost_candidates.jsonl \
 python rank_cards.py --gold data/error_cards_gold.jsonl \
     --unresolved data/error_cards_unresolved.jsonl
 ```
-
-The `fetch-sources` step downloads ~1.9 GB of arXiv LaTeX sources and takes a
-few hours at a polite rate. It is gitignored and only needed to *rebuild* the
-cards: the committed card files carry the referee quote, the cited location
-and the changed LaTeX inline, so reading and reviewing them needs no download.
+</details>
 
 Design and measured results: `docs/superpowers/specs/2026-09-05-scipost-error-card-miner-design.md`.
+
+### What comes out
+
+| File | Rows | What it is |
+| --- | ---: | --- |
+| `data/error_cards.jsonl` | 237 | Benchmark cards. A manuscript excerpt and a task. **The only file a model may see.** |
+| `data/error_cards_gold.jsonl` | 237 | The answers: referee quote, report DOI, cited equation, the revision pair and its diff, rank and the signals behind it. |
+| `data/error_cards_unresolved.jsonl` | 891 | Cards a human must localize. Same evidence, plus the candidate hunks, minus the excerpt. |
+| `data/error_cards_skipped.jsonl` | 10 | Papers whose sources could not be read, with the reason. |
+| `data/scipost_candidates.jsonl` | 538 | The selected review rounds, before card construction. |
+
+The two card files join on `card_id`. A gold or queued record is
+self-contained — it carries the referee's words, the cited equation, and the
+LaTeX that changed — so a physicist can adjudicate a card without opening
+anything else. Both queues are sorted: `rank` 1 is the strongest evidence,
+`rank_signals` says why.
 
 ### Two rules that matter
 
@@ -78,11 +126,11 @@ Severity is never assigned automatically: every card ships
 `human_severity_label: unreviewed`. A referee saying "wrong" routes a paper to
 an expert; it does not certify that the flaw is fatal.
 
-### Setup
+### Tests
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q
+.venv/bin/python -m pytest tests/ -q      # 168 tests
 ```
 
 

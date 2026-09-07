@@ -238,13 +238,24 @@ def fetch_sources(input_path: Path, source_dir: Path, delay: float) -> list[dict
         # ran v2 -> v3, and fetching v1/v2 there retrieves two revisions the
         # referees never saw.
         before, after = (int(v) for v in (row.get("source_versions") or (1, 2)))
+        paper_dir = source_dir / arxiv_id.replace("/", "_")
+        held = [existing_source(paper_dir, v) for v in (before, after)]
+        if all(held):
+            # Already downloaded. Re-querying the revision page for every paper
+            # on a rebuild costs half an hour of requests to learn nothing.
+            row["source_status"] = "downloaded_pair"
+            row["source_artifacts"] = [
+                {"version": version, "path": str(path), "kind": kind,
+                 "bytes": len(path.read_bytes()),
+                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                for version, (path, kind) in zip((before, after), held)]
+            continue
         count = version_count(arxiv_id, session)
         row["version_count"] = count
         if not count or count < after:
             row["source_status"] = "skipped_missing_version"
             continue
         row["source_status"] = "pending"
-        paper_dir = source_dir / arxiv_id.replace("/", "_")
         paper_dir.mkdir(parents=True, exist_ok=True)
         row["source_artifacts"] = []
         try:

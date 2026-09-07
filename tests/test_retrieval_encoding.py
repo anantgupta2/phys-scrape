@@ -191,3 +191,38 @@ def test_audit_still_accepts_the_legacy_status_value(tmp_path):
     row = {"arxiv_id": "2401.01234", "source_status": "downloaded_v1_v2"}
 
     assert audit.audit(row, tmp_path)["triage"] != "exclude_no_pair"
+
+
+def test_fetch_sources_skips_the_network_when_both_sources_are_present(tmp_path, monkeypatch):
+    # Re-running the rebuild must not re-query arXiv for 538 papers it already
+    # has: that is 27 minutes of requests to learn nothing.
+    def refuse(arxiv_id, session):
+        raise AssertionError("version_count should not be called when sources exist")
+    monkeypatch.setattr(collect, "version_count", refuse)
+
+    sources = tmp_path / "src"
+    paper = sources / "2207.00854"
+    paper.mkdir(parents=True)
+    for version in (2, 3):
+        write_tar(paper / f"v{version}.tar", "fracton.tex", b"\\documentclass{article}")
+    manifest = tmp_path / "in.jsonl"
+    manifest.write_text(
+        json.dumps({"arxiv_id": "2207.00854", "source_versions": [2, 3]}) + "\n",
+        encoding="utf-8")
+
+    row = collect.fetch_sources(manifest, sources, delay=0)[0]
+
+    assert row["source_status"] == "downloaded_pair"
+    assert [a["version"] for a in row["source_artifacts"]] == [2, 3]
+
+
+def test_fetch_sources_still_queries_when_a_source_is_missing(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(collect, "version_count",
+                        lambda arxiv_id, session: calls.append(arxiv_id) or 1)
+    manifest = tmp_path / "in.jsonl"
+    manifest.write_text(json.dumps({"arxiv_id": "2401.01234"}) + "\n", encoding="utf-8")
+
+    collect.fetch_sources(manifest, tmp_path / "src", delay=0)
+
+    assert calls == ["2401.01234"]

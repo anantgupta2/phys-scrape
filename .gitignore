@@ -6,3 +6,5 @@ __pycache__/
 *.tmp
 data/scipost_api_cache/
 data/scipost_sources/
+data/fetch_manifest.jsonl
+data/scipost_sources_status.jsonl
