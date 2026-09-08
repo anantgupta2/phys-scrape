@@ -2,12 +2,16 @@
 For any new agent, you may change the methodology but your goal should be to extract errors in physics papers. This repository focuses on using arxiv diff versions and open peer review to find such papers. We want the errors to be human verified and agent scraped. Having them agent curated would induce a bias.
 We have only tried directly scraping since that was the hardest one, please look at these datasets as well for possible venues.
 
-| Dataset | Primary Domains | Size / Content | Key Strengths |
+| Dataset | Primary Domains | Size / Content | Surveyed 2026-09-08 |
 |---|---|---|---|
-| ORB Dataset (CERN/GitLab) | Physics (SciPost) & AI/ML (OpenReview) | >36k papers, >89k reviews | Direct coverage of formal physics literature paired with parsed review text. |
-| MOPRD (Multidisciplinary Open Peer Review Dataset) | Multi-domain (F1000Research, PeerJ, Nature, BMJ) | Multi-round reviews, decisions, revisions | Contains genuine referee discussions across experimental and physical domains. |
-| PeerRead (AllenAI) | CS/ML (ICLR, NeurIPS, ACL) + arXiv drafts | ~14.7k papers, ~10.7k reviews | Standard NLP baseline corpus; available directly on Hugging Face (`allenai/peer_read`). |
-| AIBS Open Peer Review Repository | Scientific & Grant Review Panels | 16 compiled datasets | Useful for analyzing inter-reviewer scoring calibration and criterion weighting. |
+| ORB Dataset (CERN/GitLab) | Physics (SciPost), AI/ML (OpenReview), biology (PeerJ) | >36k papers, >89k reviews | Its SciPost half is 99.1% of what the live API already gives us, a year staler. OpenReview is ICLR/NeurIPS; PeerJ is biology. **2 usable candidates, both unusable in practice.** |
+| MOPRD (Multidisciplinary Open Peer Review Dataset) | PeerJ only — biology, medicine, CS, chemistry | 6,578 papers, multi-round reviews | Not F1000Research/Nature/BMJ as previously listed. No physics discipline at all. **0.** |
+| PeerRead (AllenAI) | CS/ML (ICLR, NeurIPS, ACL) + arXiv cs.* drafts | ~14.7k papers, ~10.7k reviews | The arXiv half carries no review text; the reviewed half is ML/NLP. 35 physics cross-lists, all with empty reviews. **0.** |
+| AIBS Open Peer Review Repository | Grant review panels | 16 compiled datasets | A bibliography, not a corpus. 14 of 16 are grant scores with no text; the physics subset is not public. **0.** |
+
+Full method and numbers: [`docs/dataset-survey.md`](docs/dataset-survey.md).
+SciPost remains the only source of theoretical physics papers with public
+referee-identified errors and recoverable arXiv revision pairs.
 
 ## Pipelines in this repository
 
