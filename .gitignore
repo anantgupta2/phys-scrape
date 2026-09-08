@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.part
+*.tmp
+data/scipost_api_cache/
+data/scipost_sources/
+data/fetch_manifest.jsonl
+data/scipost_sources_status.jsonl

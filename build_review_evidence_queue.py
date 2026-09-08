@@ -12,17 +12,19 @@ def queue_record(row: dict, triage: dict | None = None) -> dict:
     status = row.get("source_status", "not_checked")
     if triage and triage.get("triage") == "unreadable_source":
         route = "retry_source_download"
-    elif status == "downloaded_v1_v2":
+    elif status in {"downloaded_v1_v2", "downloaded_pair"}:
         route = "needs_scipost_match"
     elif status == "invalid_archive":
         route = "retry_source_download"
-    elif status == "skipped_single_version":
+    elif status in {"skipped_single_version", "skipped_missing_version"}:
         route = "exclude_no_v1_v2_pair"
     else:
         route = "source_status_unknown"
     candidate_urls = []
     if version:
-        candidate_urls = [f"https://scipost.org/submissions/arXiv:{arxiv_id}v{v}/" for v in range(1, version + 1)]
+        # SciPost addresses arXiv-based submissions by the bare versioned
+        # identifier; an "arXiv:" prefix 404s.
+        candidate_urls = [f"https://scipost.org/submissions/{arxiv_id}v{v}/" for v in range(1, version + 1)]
     return {
         "arxiv_id": arxiv_id,
         "title": row.get("title"),
