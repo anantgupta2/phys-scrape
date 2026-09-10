@@ -345,3 +345,25 @@ def test_fetch_manifest_deduplicates_repeated_rounds():
         {"arxiv_id": "2002.02120", "v_before": 3, "v_after": 4},
     ]
     assert len(mine.fetch_manifest(candidates)) == 2
+
+
+# --- figures and tables are not equations ------------------------------------
+# Real: "I would add a T beside the color maps in Figs. (1), (3), (4), (5),
+# (10), and (11)" was recorded as an objection to equation 10.
+
+@pytest.mark.parametrize("text", [
+    "In Fig. (17), the label of the y-axis is missing.",
+    "I would add a T beside the color maps in Figs. (1), (3), and (10).",
+    "In Table (1.5), the second row should be 2-leg with spin.",
+    "See figure 4 for the comparison.",
+])
+def test_a_figure_or_table_reference_is_not_an_equation(text):
+    assert [l for l in mine.cited_locations(text) if l["kind"] == "equation"] == []
+
+
+def test_an_equation_cited_alongside_a_figure_still_counts():
+    # "I don't understand the curves in Figs. 4 and 5 ... According to Eq. (43)"
+    found = mine.cited_locations(
+        "I don't understand the curves in Figs. 4 and 5 for small U. "
+        "According to Eq. (43) the U=0 limit gives roughly -27.")
+    assert {l["number"] for l in found if l["kind"] == "equation"} == {"43"}

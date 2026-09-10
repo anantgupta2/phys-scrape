@@ -140,12 +140,34 @@ def arxiv_reference(identifier: str) -> tuple[str, int] | None:
     return (match["id"], int(match["version"])) if match else None
 
 
+# A number introduced by "Fig." or "Table" is not an equation. Suppressing the
+# whole sentence would be wrong: referees cite both in one breath ("the curves
+# in Figs. 4 and 5 ... according to Eq. (43)"). The run covers the enumeration
+# a referent introduces, since only its first number sits next to the word.
+NON_EQUATION_RUN = re.compile(
+    r"\b(?:figs?|figures?|tabs?|tables?|panels?|plots?|insets?|refs?|references?|secs?|sections?)\.?\s*"
+    r"\(?\d+[a-z]?\)?(?:(?:\s*(?:,|;|and|&|to|through|--|-)\s*)+\(?\d+[a-z]?\)?)*",
+    re.I,
+)
+
+
+def _non_equation_spans(text: str) -> list[tuple[int, int]]:
+    return [m.span() for m in NON_EQUATION_RUN.finditer(text)]
+
+
+def _introduced_by_a_non_equation(spans: list[tuple[int, int]], start: int) -> bool:
+    return any(a <= start < b for a, b in spans)
+
+
 def cited_locations(text: str) -> list[dict]:
     """Extract numbered references, in order of appearance, deduplicated."""
     found: list[tuple[int, str, str]] = []
+    spans = _non_equation_spans(text)
     for kind, pattern in LOCATION_PATTERNS:
-        found += [(m.start(), kind, m[1]) for m in pattern.finditer(text)]
-    found += [(m.start(), "equation", m[1]) for m in BARE_REFERENCE.finditer(text)]
+        found += [(m.start(), kind, m[1]) for m in pattern.finditer(text)
+                  if kind != "equation" or not _introduced_by_a_non_equation(spans, m.start())]
+    found += [(m.start(), "equation", m[1]) for m in BARE_REFERENCE.finditer(text)
+              if not _introduced_by_a_non_equation(spans, m.start())]
     seen, ordered = set(), []
     for _, kind, number in sorted(found):
         if (kind, number) not in seen:
