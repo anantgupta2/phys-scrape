@@ -140,12 +140,34 @@ def arxiv_reference(identifier: str) -> tuple[str, int] | None:
     return (match["id"], int(match["version"])) if match else None
 
 
+# A number introduced by "Fig." or "Table" is not an equation. Suppressing the
+# whole sentence would be wrong: referees cite both in one breath ("the curves
+# in Figs. 4 and 5 ... according to Eq. (43)"). The run covers the enumeration
+# a referent introduces, since only its first number sits next to the word.
+NON_EQUATION_RUN = re.compile(
+    r"\b(?:figs?|figures?|tabs?|tables?|panels?|plots?|insets?|refs?|references?|secs?|sections?)\.?\s*"
+    r"\(?\d+[a-z]?\)?(?:(?:\s*(?:,|;|and|&|to|through|--|-)\s*)+\(?\d+[a-z]?\)?)*",
+    re.I,
+)
+
+
+def _non_equation_spans(text: str) -> list[tuple[int, int]]:
+    return [m.span() for m in NON_EQUATION_RUN.finditer(text)]
+
+
+def _introduced_by_a_non_equation(spans: list[tuple[int, int]], start: int) -> bool:
+    return any(a <= start < b for a, b in spans)
+
+
 def cited_locations(text: str) -> list[dict]:
     """Extract numbered references, in order of appearance, deduplicated."""
     found: list[tuple[int, str, str]] = []
+    spans = _non_equation_spans(text)
     for kind, pattern in LOCATION_PATTERNS:
-        found += [(m.start(), kind, m[1]) for m in pattern.finditer(text)]
-    found += [(m.start(), "equation", m[1]) for m in BARE_REFERENCE.finditer(text)]
+        found += [(m.start(), kind, m[1]) for m in pattern.finditer(text)
+                  if kind != "equation" or not _introduced_by_a_non_equation(spans, m.start())]
+    found += [(m.start(), "equation", m[1]) for m in BARE_REFERENCE.finditer(text)
+              if not _introduced_by_a_non_equation(spans, m.start())]
     seen, ordered = set(), []
     for _, kind, number in sorted(found):
         if (kind, number) not in seen:
@@ -195,11 +217,30 @@ def next_round(submission: dict, by_thread: dict[str, list[dict]]) -> dict | Non
     return next((s for s in siblings if s.get("is_resubmission_of") == url), None)
 
 
-def report_objections(submission: dict) -> list[dict]:
+ANONYMOUS = frozenset({"", "anonymous", "anonymous referee"})
+
+
+def report_date(report: dict) -> str:
+    """The day the referee submitted the report, or "" if SciPost has none."""
+    return str(report.get("date_submitted") or "")[:10]
+
+
+def report_objections(submission: dict, reports_before: str | None = None) -> list[dict]:
+    """Objections stated in this submission's vetted reports.
+
+    `reports_before` keeps only reports the referee submitted strictly before
+    that date, so a dataset can exclude any report that might have been
+    written with model assistance. A report SciPost gives no date for is
+    excluded under a cutoff rather than assumed old.
+    """
     found = []
     for report in submission.get("reports") or ():
         if report.get("status") != "vetted":
             continue
+        written = report_date(report)
+        if reports_before is not None and not (written and written < reports_before):
+            continue
+        author = str(report.get("author") or "").strip()
         text = "\n".join(str(report.get(field) or "") for field in REPORT_FIELDS)
         for objection in objections(text):
             found.append(objection | {
@@ -207,11 +248,15 @@ def report_objections(submission: dict) -> list[dict]:
                 "report_url": SITE + str(report.get("url") or ""),
                 "report_doi": report.get("doi_string"),
                 "referee_validity_rating": report.get("validity"),
+                "report_date": written,
+                "referee_invited": bool(report.get("invited")),
+                "referee_signed": author.lower() not in ANONYMOUS,
             })
     return found
 
 
-def candidate(submission: dict, by_thread: dict[str, list[dict]]) -> dict | None:
+def candidate(submission: dict, by_thread: dict[str, list[dict]],
+              reports_before: str | None = None) -> dict | None:
     """Build a candidate record, or None if the submission does not qualify."""
     if not is_theory(submission):
         return None
@@ -224,7 +269,7 @@ def candidate(submission: dict, by_thread: dict[str, list[dict]]) -> dict | None
     after = arxiv_reference(following.get("identifier", ""))
     if after is None:
         return None
-    found = report_objections(submission)
+    found = report_objections(submission, reports_before=reports_before)
     if not found:
         return None
     arxiv_id, before = reference
@@ -240,6 +285,7 @@ def candidate(submission: dict, by_thread: dict[str, list[dict]]) -> dict | None
         "specialties": submission.get("specialties"),
         "status": submission.get("status"),
         "submission_date": submission.get("submission_date"),
+        "resubmission_date": following.get("submission_date"),
         "objections": found,
     }
 
@@ -319,6 +365,10 @@ def main() -> None:
     s = sub.add_parser("select", help="apply the selection rules to the cache")
     s.add_argument("--cache-dir", type=Path, required=True)
     s.add_argument("--output", type=Path, required=True)
+    s.add_argument("--reports-before", metavar="YYYY-MM-DD",
+                   help="keep only objections from reports a referee submitted "
+                        "strictly before this date, so the ground truth cannot "
+                        "have been written with model assistance")
     m = sub.add_parser("fetch-manifest",
                        help="list the arXiv version pairs the review rounds name")
     m.add_argument("--candidates", type=Path, required=True)
@@ -339,11 +389,24 @@ def main() -> None:
     rows = load_cache(args.cache_dir)
     by_thread = group_by_thread(rows)
     retrieved_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    records = [c | {"retrieved_at": retrieved_at}
-               for c in (candidate(row, by_thread) for row in rows) if c]
+    cutoff = getattr(args, "reports_before", None)
+    provenance = {"reports_before": cutoff} if cutoff else {}
+    records = [c | {"retrieved_at": retrieved_at} | provenance
+               for c in (candidate(row, by_thread, reports_before=cutoff) for row in rows) if c]
     write_jsonl(args.output, records)
     quotes = sum(len(r["objections"]) for r in records)
-    print(f"{len(rows)} submissions -> {len(records)} candidates, {quotes} objection quotes")
+    papers = len({r["arxiv_id"] for r in records})
+    if cutoff:
+        print(f"cutoff: reports submitted strictly before {cutoff}")
+    print(f"{len(rows)} submissions -> {len(records)} candidates over {papers} papers, "
+          f"{quotes} objection quotes")
+    if cutoff:
+        signed = sum(1 for r in records for o in r["objections"] if o["referee_signed"])
+        invited = sum(1 for r in records for o in r["objections"] if o["referee_invited"])
+        latest = max((o["report_date"] for r in records for o in r["objections"]), default="")
+        print(f"  signed by a named referee: {signed} of {quotes}")
+        print(f"  invited by the journal:    {invited} of {quotes}")
+        print(f"  latest report date:        {latest}")
 
 
 if __name__ == "__main__":

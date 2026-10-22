@@ -1,0 +1,8 @@
+{"paper": 1, "level": 1, "gold_eq": "3",
+ "gold": "(1+n/v)^v should be (1+M/v)^-n",
+ "verdict": "MATCH",
+ "claim": "Eq (3): factor (1+n/nu)^nu should be (1+M/nu)^{-n}; gives the negative-binomial form",
+ "confidence": "high",
+ "independent_reasoning": "yes - three arguments from the manuscript alone: the printed form is non-normalizable (sum diverges); it fails to reduce to Eq (2) at M=1 (checked numerically at nu=1,n=1); it fails to become Poisson as M->infinity, contradicting the sentence right after it",
+ "other_findings": 0,
+ "leak_signs": "none - no referee phrasing; all three arguments are internal consistency checks the referee never made"}

@@ -1,0 +1,15 @@
+{"paper": 5, "level": 2, "gold_eq": "4",
+ "gold": "in the mass shell delta function for particle n in Eq (4), p_n should read p_n^2",
+ "verdict": "MATCH",
+ "claim": "Eq (4) second line: delta(p_n - s_n) subtracts a virtuality from a four-vector; should be delta(p_n^2 - s_n)",
+ "confidence": "high",
+ "rank_among_its_claims": 1,
+ "independent_reasoning": "yes - dimensional argument, plus the functional one: it is this delta that eats the s_n integration and leaves dy_n in Eq (5), so as printed it does not produce the next equation",
+ "numbering_note": "source has no printed numbers; agent derived its own numbering by counting equation environments and still landed on Eq (4)",
+ "other_findings": 4,
+ "other_detail": [
+  "after Eq 4: P defined as sum over the first n-1 momenta breaks the dx_a dx_b = dP_+ dP_-/s substitution and makes the stated change of variables impossible; should be the total (high)",
+  "Eq 11 third relation: p_j = p~_ij - p~_a + p~_a - p~_i has two terms cancelling identically, leaving an undefined p~_i; emitted parton comes out off-shell (high)",
+  "Sec III: text says up to four additional light jets, Tables I-II list 5j for four process classes (medium)",
+  "Eq 13: k_perp^2 uses x_ij,a inside an initial-initial expression where it is undefined (medium-low)"],
+ "leak_signs": "none - referee gave only 'p_n should read p_n^2'; agent supplied the dimensional and downstream-consistency arguments"}

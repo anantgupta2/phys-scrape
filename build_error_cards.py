@@ -317,11 +317,9 @@ def build(candidate: dict, old: list[str], new: list[str],
             "title": candidate.get("title"),
             "scipost_submission_url": candidate.get("scipost_submission_url"),
             "main_tex": main_tex,
-            "report_url": primary.get("report_url"),
-            "report_doi": primary.get("report_doi") or None,
+            **card_fields(primary),
             "referee_quote": primary["quote"],
             "supporting_quotes": [o["quote"] for o in group[1:]],
-            "referee_validity_rating": primary.get("referee_validity_rating"),
             "tier": primary.get("tier", "stated_error"),
             "cited_location": location,
             "v_before": candidate["v_before"],
@@ -393,6 +391,23 @@ def build(candidate: dict, old: list[str], new: list[str],
 def normalize_symbol(text: str) -> str:
     """Fold font macros and whitespace so \\rm and \\mathrm compare equal."""
     return re.sub(r"[\s{}]+", "", FONT_MACRO.sub("", text))
+
+
+def card_fields(objection: dict) -> dict:
+    """The provenance of the report an objection came from.
+
+    Carried onto every card so a date-restricted dataset can be verified from
+    the data itself. None rather than a default when SciPost gave us nothing:
+    a missing date must not read as an old one.
+    """
+    return {
+        "report_url": objection.get("report_url"),
+        "report_doi": objection.get("report_doi") or None,
+        "report_date": objection.get("report_date") or None,
+        "referee_invited": objection.get("referee_invited"),
+        "referee_signed": objection.get("referee_signed"),
+        "referee_validity_rating": objection.get("referee_validity_rating"),
+    }
 
 
 def card_identifier(scipost_identifier: str, kind: str, number: str) -> str:

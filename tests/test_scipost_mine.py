@@ -345,3 +345,88 @@ def test_fetch_manifest_deduplicates_repeated_rounds():
         {"arxiv_id": "2002.02120", "v_before": 3, "v_after": 4},
     ]
     assert len(mine.fetch_manifest(candidates)) == 2
+
+
+# --- figures and tables are not equations ------------------------------------
+# Real: "I would add a T beside the color maps in Figs. (1), (3), (4), (5),
+# (10), and (11)" was recorded as an objection to equation 10.
+
+@pytest.mark.parametrize("text", [
+    "In Fig. (17), the label of the y-axis is missing.",
+    "I would add a T beside the color maps in Figs. (1), (3), and (10).",
+    "In Table (1.5), the second row should be 2-leg with spin.",
+    "See figure 4 for the comparison.",
+])
+def test_a_figure_or_table_reference_is_not_an_equation(text):
+    assert [l for l in mine.cited_locations(text) if l["kind"] == "equation"] == []
+
+
+def test_an_equation_cited_alongside_a_figure_still_counts():
+    # "I don't understand the curves in Figs. 4 and 5 ... According to Eq. (43)"
+    found = mine.cited_locations(
+        "I don't understand the curves in Figs. 4 and 5 for small U. "
+        "According to Eq. (43) the U=0 limit gives roughly -27.")
+    assert {l["number"] for l in found if l["kind"] == "equation"} == {"43"}
+
+
+# --- human-authorship cutoff -------------------------------------------------
+# A benchmark whose ground truth may have been written by a model measures
+# nothing. Reports carry date_submitted, so the dataset can be restricted to
+# referee text written before a given date -- and each objection records the
+# date, so the claim is checkable from the data rather than from a README.
+
+def _submission_with_report_dated(date: str, **report_extra) -> dict:
+    report = {
+        "status": "vetted", "report_nr": 1, "url": "/x", "doi_string": "10.21468/x",
+        "validity": "ok", "date_submitted": date, "weaknesses": "", "report": "",
+        "requested_changes": "Eq. (12) is wrong and should be corrected.",
+    }
+    report.update(report_extra)
+    return {
+        "acad_field": "Physics", "specialties": ["Quantum Physics"],
+        "identifier": "2101.00001v1", "url": "/submissions/2101.00001v1/",
+        "thread_hash": "t", "reports": [report],
+    }
+
+
+def test_a_report_written_before_the_cutoff_is_kept():
+    submission = _submission_with_report_dated("2021-06-01T10:00:00")
+    assert mine.report_objections(submission, reports_before="2022-11-30")
+
+
+def test_a_report_written_on_the_cutoff_is_excluded():
+    submission = _submission_with_report_dated("2022-11-30T00:00:01")
+    assert mine.report_objections(submission, reports_before="2022-11-30") == []
+
+
+def test_a_report_written_after_the_cutoff_is_excluded():
+    submission = _submission_with_report_dated("2023-04-02T10:00:00")
+    assert mine.report_objections(submission, reports_before="2022-11-30") == []
+
+
+def test_a_report_with_no_date_is_excluded_rather_than_assumed_old():
+    submission = _submission_with_report_dated("")
+    assert mine.report_objections(submission, reports_before="2022-11-30") == []
+
+
+def test_no_cutoff_keeps_everything():
+    submission = _submission_with_report_dated("2026-04-02T10:00:00")
+    assert mine.report_objections(submission)
+
+
+def test_each_objection_records_the_provenance_of_its_report():
+    submission = _submission_with_report_dated(
+        "2021-06-01T10:00:00", author="Rychkov, Prof. Slava", invited=True,
+    )
+    objection = mine.report_objections(submission)[0]
+    assert objection["report_date"] == "2021-06-01"
+    assert objection["referee_invited"] is True
+    assert objection["referee_signed"] is True
+
+
+def test_an_anonymous_referee_is_recorded_as_unsigned():
+    submission = _submission_with_report_dated(
+        "2021-06-01T10:00:00", author="Anonymous", invited=True,
+    )
+    objection = mine.report_objections(submission)[0]
+    assert objection["referee_signed"] is False

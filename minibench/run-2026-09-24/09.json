@@ -1,0 +1,18 @@
+{
+ "paper_number": 9,
+ "paper_level": 3,
+ "run_date": "2026-09-24",
+ "purpose": "re-run under the canonical prompt plus a length cap only, to settle whether the 2026-09-17 MATCH depended on the hint its relaunch prompt carried",
+ "prompt": "prompts/referee-agent-clean-rerun.md",
+ "prompt_differs_from_canonical_by": "adds the 1200-word report cap; adds 'It may be long; read it in sections if you need to'. No clause naming any error class.",
+ "gold_equation": "5.23",
+ "gold_referee_quote": "In Eq. 5.23, should the $2$ be replaced by $N$?",
+ "verdict": "MATCH",
+ "agent_localisation": "Sec. 5.2, 'Example 1: single foliation'",
+ "agent_quote": "e^{2i\\oint a+ Ni\\int B^3}",
+ "agent_claim": "The exponent should be N, not 2.",
+ "agent_argument": "The preceding sentence defines this as the N-th power e^{Ni\\oint a}, and gauge invariance requires it: delta(N oint a) = -N oint lambda^3_1 is cancelled only by delta(N int B^3) = +N oint lambda^3_1.",
+ "agent_confidence": "high",
+ "other_findings": 10,
+ "notes": "The agent reports by section and quote rather than by equation number, because LaTeX source carries no printed numbers. The quoted expression and the claim 'should be N, not 2' identify the gold uniquely. It also argued the error from gauge invariance rather than asserting it, which is the class of error with no convention defence."
+}

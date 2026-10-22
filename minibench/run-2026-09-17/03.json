@@ -1,0 +1,12 @@
+{"paper": 3, "level": 1, "gold_eq": "3",
+ "gold": "p(c*|omega) on the RHS should be p(c*|omega,C)",
+ "verdict": "MISS",
+ "claim": "no claim about Eq 3 at all",
+ "other_findings": 5,
+ "other_detail": [
+  "Eq 17/18: sign of the L2/prior penalty is negative, making the loss unbounded below and contradicting Eqs 7-8 (confidence high)",
+  "Eq 19 vs 20: lambda=1/(2 sigma^2) with sigma=1 gives 0.5, not the quoted 2.5e-6 - a factor 2e5, exactly the 200k training sample (medium-high)",
+  "Eq 9: stationarity condition drops the KL term's mu dependence, contradicting Eqs 7-8 (medium)",
+  "Fig 8: reliability diagram plots true positive rate where calibration requires purity (medium)",
+  "Sec 4.2: claims QCD jets have democratic subjet energies, which is inverted for a 3-prong top (low)"],
+ "leak_signs": "none - did not approach Eq 3 at all"}

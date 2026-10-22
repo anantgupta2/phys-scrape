@@ -1,0 +1,13 @@
+{"paper": 12, "level": 4, "gold_eq": "1.9",
+ "gold": "in Eq (1.9) scaling invariance does not explain the C_000 factor; referee thinks it comes from the normalization",
+ "verdict": "MISS",
+ "claim": "listed Eq (1.9) among equations re-derived analytically and confirmed numerically as correct",
+ "gold_character": "the referee does not say the formula is wrong - it says the JUSTIFICATION offered for one factor is wrong. Nothing in the equation fails a check, so there is nothing for a calculation to catch.",
+ "other_findings": 4,
+ "other_detail": [
+  "after Eq 2.6: text claims n is invariant under beta^2 -> beta^2+1, but n = -2cos(pi beta^2) changes sign; the paper's own L=4 transfer matrices are not even functions of n (high)",
+  "Eq 1.20: sign wrong for beta^2 > 1, contradicting both Eq 1.19 and the paper's own quoted value in Eq 1.21b; demonstrated numerically at four values of beta^2 (medium-high)",
+  "Eq 1.22a: quoted decimal disagrees with its own closed form from the 9th digit; notes the closed form is right and the pattern suggests a precision limit in the authors' implementation (medium)",
+  "Tables 4.2 and 4.5: entries violating r_i s_i in Z, plus r_3 = 2/3 contradicting the list in 4.1 (medium)"],
+ "method_note": "implemented the Barnes double Gamma from its integral representation, validated to 25 digits, then rebuilt the L=4 transfer matrices and the full O(n) loop transfer matrix independently",
+ "leak_signs": "none"}

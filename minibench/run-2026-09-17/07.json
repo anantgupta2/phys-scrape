@@ -1,0 +1,42 @@
+{
+ "paper": 7,
+ "level": 3,
+ "gold_eq": "1",
+ "gold": "in Eq (1), m|phi|^2 should be replaced by m^2|phi|^2",
+ "verdict": "UNSCORED",
+ "claim": "no report produced in either attempt",
+ "attempts": [
+  {
+   "date": "2026-09-17",
+   "prompt": "canonical",
+   "outcome": "hit the 64k output ceiling without reaching a conclusion"
+  },
+  {
+   "date": "2026-09-17",
+   "prompt": "canonical + 1200-word cap + a clause naming dimensional consistency",
+   "outcome": "hit the 64k output ceiling again"
+  },
+  {
+   "date": "2026-09-24",
+   "prompt": "canonical + 1200-word cap, no error-class clause",
+   "outcome": "watchdog stall at 600s, no report"
+  },
+  {
+   "date": "2026-09-24",
+   "prompt": "canonical + 1200-word cap, no error-class clause",
+   "outcome": "hit the 64k output ceiling again"
+  }
+ ],
+ "scored": false,
+ "diagnosis": "Not established. The density argument recorded here on 2026-09-17 -- that paper 7 is unusually equation-sparse -- does not survive measurement across the whole set: at 2.1 numbered-math environments per 10k characters it is second-lowest, and paper 1 is lower still (1.8) and matched. What is reproducible is the failure mode, not an explanation for it.",
+ "irony": "the gold sits in Eq (1) on the first page and is a dimensional slip (m|phi|^2 vs m^2|phi|^2) - by every other result in this run, the easiest class of error in the set",
+ "note": "Four attempts, three of them the same failure: the model generates past the 64k output ceiling before producing a report. The third attempt carried an explicit 1,200-word cap and still overran, so the instruction does not bound the generation that precedes the report. Excluded from every denominator.",
+ "observed": {
+  "chars": 77160,
+  "numbered_math_environments": 16,
+  "per_10k_chars": 2.1,
+  "set_range_per_10k": "1.8 - 15.2",
+  "gold_equation": 1,
+  "gold_referee_quote": "2 - In Eq. (1), $m |\\phi|^2$ should be replaced by $m^2 |\\phi|^2$."
+ }
+}

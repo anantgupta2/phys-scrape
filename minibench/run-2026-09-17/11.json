@@ -1,0 +1,18 @@
+{"paper": 11, "level": 4, "gold_eq": "11",
+ "gold": "second formula (11) probably wrong, should be a_B = -1/g_B not -1/g",
+ "verdict": "MATCH",
+ "claim": "a_B defined as -hbar^2/(m g) must use the particle-barrier coupling g_B",
+ "confidence": "high",
+ "rank_among_its_claims": 1,
+ "independent_reasoning": "yes - noted that as printed a_B and a are rigidly locked (a_B = a/2), collapsing the paper's two-parameter analysis, then confirmed the intended definition numerically against the paper's own Fig 2 values (-0.353553L)",
+ "other_findings": 6,
+ "other_detail": [
+  "jump conditions: all three right-hand sides off by a factor 2; verified against the manuscript's own solutions numerically, and against both the g->0 one-body limit and the g_B->0 Lieb-Liniger limit (high)",
+  "same equation: derivative written d/dx_1 where the limit is x_2 -> 0 (high)",
+  "Fig 2 caption: quoted ground state energy 56.7 is (k1^2+k2^2)L^2, dropping the 1/2 in Eq 22; correct value 28.43 (high)",
+  "after Eq 1/g: orbitals stated periodic, but the Bose-Fermi map for N=2 gives antiperiodic; confirmed from the paper's own BAE limits (high)",
+  "Eq 1/g: expansion valid only on the barrier-even branch, wrong for the actual ground state; checked to 8 digits against exact BAE (high)",
+  "the claimed positivity of the 1/g^2 ground-state correction is contradicted by the paper's own BAEs; c_2 is negative below xi_B ~ 5.9 (high)",
+  "abstract claim that g_B=-g reproduces the free spectrum is too strong; free levels are contained in, not equal to, the solution set (medium)"],
+ "method_note": "28 tool calls - re-solved the Bethe ansatz equations numerically, verified periodicity and jump ratios to 1e-14, and redid the strong-coupling perturbation theory independently",
+ "leak_signs": "none - referee gave a one-line aside; agent derived it and cross-checked against Fig 2"}

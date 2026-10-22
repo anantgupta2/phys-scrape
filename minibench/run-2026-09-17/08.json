@@ -1,0 +1,16 @@
+{"paper": 8, "level": 3, "gold_eq": "33",
+ "gold": "is there a factor of 1/2 missing in Eq (33)",
+ "verdict": "PARTIAL",
+ "claim": "identified the identical factor-2 discrepancy between Eq 33 (state) and Eq 34 (norm), but argued Eq 33 is correct and Eq 34 should carry exp(-2 beta_z l_N)",
+ "confidence": "medium-high",
+ "why_partial": "referee and agent disagree only on which side of the 33/34 pair to correct; the agent gave a reason (Eq 33 follows from D_l = e^{beta_z Gamma^z/2}) and cross-checked against Eq 54 where nu = e^{-2 beta_z}. Numbering matched the printed numbers exactly.",
+ "other_findings": 7,
+ "other_detail": [
+  "Eq 19: Gamma^x missing 1/3; as printed (Gamma^x)^2 = 9I not I, contradicting Eq 24's eigenvalues; verified three ways (high)",
+  "after Eq 16: both quoted theta values wrong; f(pi/2) = +1/2 not -1/2, and the states span the full 3D space, contradicting the physical claim (high)",
+  "Eq 55 and appendix Eq 83: mu exponent must subtract 2x the overlap lengths; required by the paper's own collapse to Eq 84 (high)",
+  "Eq 57: mu and rho interchanged relative to Eq 55 and the Fig 8 caption (medium-high)",
+  "Eq 71: two of four beta_4,1 deltas have the beta_4,2 form; block not internally consistent (medium-high)",
+  "Eq 59 / 69 / Fig 10 caption: order parameter should be <omega^{s-sigma}>; as printed it evaluates to 0 at the TC point, contradicting the caption (medium)",
+  "Sec 5.5: the two AFM critical points are placed in the wrong phases (medium)"],
+ "leak_signs": "none - it argued against the referee's proposed fix, which is not what a leaked answer looks like"}

@@ -5,6 +5,8 @@
 #   ./rebuild.sh                 full rebuild, including the source download
 #   ./rebuild.sh --no-download   rebuild cards from sources already on disk
 #   ./rebuild.sh --refresh       re-query SciPost even if the cache exists
+#   ./rebuild.sh --precutoff     also build the pre-2022-11-30 dataset, whose
+#                                referee text predates ChatGPT's release
 #
 # Safe to interrupt and re-run: every stage skips work already done, and the
 # arXiv download resumes rather than starting over.
@@ -21,10 +23,13 @@ MANIFEST=data/fetch_manifest.jsonl
 
 DOWNLOAD=yes
 REFRESH=no
+PRECUTOFF=no
+CUTOFF=2022-11-30
 for arg in "$@"; do
   case "$arg" in
     --no-download) DOWNLOAD=no ;;
     --refresh)     REFRESH=yes ;;
+    --precutoff)   PRECUTOFF=yes ;;
     -h|--help)     sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -81,6 +86,22 @@ $PY build_error_cards.py --candidates "$CANDIDATES" --source-dir "$SOURCES" --ou
 step "Ranking"
 $PY rank_cards.py --gold data/error_cards_gold.jsonl \
                   --unresolved data/error_cards_unresolved.jsonl
+
+# --- 6. pre-cutoff dataset --------------------------------------------------
+# Same rules, restricted to referee reports written before ChatGPT was public,
+# so the ground truth is human by construction. The filter is on the report
+# date, not the paper's: a 2021 paper can be refereed in 2024.
+if [ "$PRECUTOFF" = yes ]; then
+  step "Pre-$CUTOFF dataset"
+  mkdir -p data/precutoff
+  $PY scipost_mine.py select --cache-dir "$CACHE" \
+      --output data/precutoff_candidates.jsonl --reports-before "$CUTOFF"
+  $PY build_error_cards.py --candidates data/precutoff_candidates.jsonl \
+      --source-dir "$SOURCES" --output-dir data/precutoff
+  $PY rank_cards.py --gold data/precutoff/error_cards_gold.jsonl \
+                    --unresolved data/precutoff/error_cards_unresolved.jsonl
+  echo "see data/precutoff/README.md"
+fi
 
 # --- done -------------------------------------------------------------------
 step "Done"

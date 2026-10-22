@@ -1,0 +1,12 @@
+{"paper": 4, "level": 2, "gold_eq": "2",
+ "gold": "Eqs 2a and 2b are missing a factor y in front of the last cosine term",
+ "verdict": "MATCH",
+ "claim": "Eqs (2a)/(2b): the second term is missing the variable y; should be |-x sin(phi)+y cos(phi)|^n",
+ "confidence": "high",
+ "independent_reasoning": "yes - dimensional argument (a pure number added to a length, then raised to n and compared with a^n) plus a concrete check: setting phi_1=0 in (2a) gives |x|^n+1-a^n=0 rather than Eq (1)",
+ "other_findings": 2,
+ "other_detail": [
+  "after Eq 12: the relation dx_loc ~ sigma(dphi_loc) contradicts dx_loc = 1/rho - d used two sentences later, since sigma >= d always; proposes dx_loc ~ sigma(dphi_loc) - d, which recovers the claimed exponent (medium-high)",
+  "after Fig 9: 'weakly jammed' defined as density decreasing without increasing total length is self-contradictory at fixed N (medium)"],
+ "also_verified": "independently re-derived Eq 4, its n->inf and n=2 limits, Eqs 5-8, 11, 12, the large-P equation of state, and the exponents alpha, beta, gamma with their sum rules - all confirmed correct",
+ "leak_signs": "none - referee said only 'appear to be missing a factor y'; agent supplied the dimensional and phi=0 arguments itself"}

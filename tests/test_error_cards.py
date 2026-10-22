@@ -783,3 +783,39 @@ def test_hunk_text_never_reaches_the_model_card():
     (model, gold), = cards.build(stubborn, V_BEFORE, V_AFTER)
     assert set(model) == {"card_id", "excerpt_lines", "excerpt", "task"}
     assert "v_{\\rm fixed}" not in json.dumps(model)
+
+
+# --- provenance travels with the card ---------------------------------------
+# A dataset restricted to pre-cutoff referee text is only checkable if every
+# card carries the date of the report it came from. Asserting the cutoff in a
+# README is not the same as being able to test it.
+
+def test_a_card_carries_the_date_and_provenance_of_its_report():
+    objection = {
+        "quote": "Eq. (3) is wrong.",
+        "cited_locations": [{"kind": "equation", "number": "3"}],
+        "tier": "stated_error",
+        "report_nr": 1,
+        "report_url": "https://scipost.org/x",
+        "report_doi": "10.21468/SciPost.Report.1",
+        "referee_validity_rating": "low",
+        "report_date": "2021-06-01",
+        "referee_invited": True,
+        "referee_signed": False,
+    }
+    card = cards.card_fields(objection)
+    assert card["report_date"] == "2021-06-01"
+    assert card["referee_invited"] is True
+    assert card["referee_signed"] is False
+
+
+def test_a_card_from_an_objection_with_no_provenance_says_so():
+    objection = {
+        "quote": "Eq. (3) is wrong.",
+        "cited_locations": [{"kind": "equation", "number": "3"}],
+        "tier": "stated_error",
+    }
+    card = cards.card_fields(objection)
+    assert card["report_date"] is None
+    assert card["referee_invited"] is None
+    assert card["referee_signed"] is None

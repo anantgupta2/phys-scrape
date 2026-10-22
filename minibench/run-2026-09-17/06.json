@@ -1,0 +1,13 @@
+{"paper": 6, "level": 2, "gold_eq": "2.13",
+ "gold": "do not see how the transformation in eq (2.13) could be realised as a transformation acting only on those degrees of freedom",
+ "verdict": "MISS",
+ "claim": "no claim about Eq 2.13; it appears in neither the error list nor the verified list",
+ "near_miss_note": "finding 3 concerns Eq 2.8, also a transformation rule (a wrong dagger in U -> g U h^dagger), but a different equation and a different defect",
+ "other_findings": 4,
+ "other_detail": [
+  "Eq 3.5: spurious 1/sqrt2 on the i m_s singlet entry, clashing with Eq 3.2 and propagating a factor 2 into every m_s^2 term of Eq 3.10 (high)",
+  "below Eq 3.10: the quoted xi=0.1 does not follow from the printed equation, which gives 0.195 (high)",
+  "Eq 2.8: U -> g^dagger U h^dagger contradicts Eq 2.9's Sigma -> g Sigma g^dagger (medium-high)",
+  "Eq 4.2: denominator carries (p^2+m_v)^2, dimensionally inconsistent; should be (p^2+m_v^2) to first power (high)"],
+ "method_note": "reconstructed the one-loop Coleman-Weinberg potential in exact rational arithmetic and reproduced Eqs 4.1 and 4.2 identically, then used that to localise the discrepancies",
+ "leak_signs": "none"}

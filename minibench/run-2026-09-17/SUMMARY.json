@@ -1,0 +1,57 @@
+{
+ "run_date": "2026-09-17",
+ "setup": "one agent per paper, each given only its own manuscript at a neutral path, told to read nothing else and not to search; never told a known answer existed or how many errors to expect",
+ "model": "claude-opus-5 (Opus 5), no per-agent override, effort level xhigh; verified from the session subagent transcripts, not from memory",
+ "scored": 11,
+ "match": 6,
+ "partial": 1,
+ "miss": 4,
+ "timeout": 1,
+ "headline": "6/11 found the gold error unaided (7/11 counting the partial); paper 9 re-tested 2026-09-24 under a prompt naming no error class and matched again",
+ "by_level": {
+  "1": {
+   "match": 2,
+   "of": 3
+  },
+  "2": {
+   "match": 2,
+   "of": 3
+  },
+  "3": {
+   "match": 1,
+   "of": 2,
+   "note": "paper 7 timed out and is excluded"
+  },
+  "4": {
+   "match": 1,
+   "of": 3
+  }
+ },
+ "by_error_type": {
+  "no_convention_defence": {
+   "match": 6,
+   "partial": 1,
+   "of": 7
+  },
+  "defensible_as_convention_or_intent": {
+   "match": 0,
+   "of": 4
+  }
+ },
+ "unscored_other_findings": 57,
+ "leakage_check": "no report showed signs of having read the gold; several argued against the referee's stated fix",
+ "caveats": [
+  "paper 7 has never produced a scored result: two attempts hit the 64k output ceiling and a third stalled. It is excluded from every denominator.",
+  "no error here has been verified by a qualified human; every card still carries human_severity_label unreviewed",
+  "all agents were the same model at the same effort, so this run measures papers and error types, not model capability",
+  "the 2026-09-24 re-run read the current papers.txt, rebuilt after the anonymisation fix; paper 9 was not one of the two papers that file changed"
+ ],
+ "prompts": "prompts/referee-agent.md (canonical), prompts/referee-agent-reruns.md (the two variants and the disclosure)",
+ "hint_contamination": {
+  "what": "papers 7 and 9 were relaunched after crashing on the 64k output ceiling; both relaunch prompts added a clause naming the class of that paper's own gold error (dimensions for 7, coefficients for 9)",
+  "tested": "2026-09-24, paper 9 re-run under the canonical prompt plus the length cap and no error-class clause",
+  "outcome": "MATCH again, at high confidence, argued from gauge invariance. The hint did not carry the result, so paper 9 stays in the count.",
+  "record": "minibench/run-2026-09-24/09.json, prompts/referee-agent-clean-rerun.md",
+  "paper_7": "still unresolved: two output-ceiling crashes and one watchdog stall, no completed attempt"
+ }
+}
